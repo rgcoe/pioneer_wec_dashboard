@@ -1,0 +1,9 @@
+services:
+  wavss-fetch:
+    build: .
+    container_name: pioneer_wavss_fetch
+    volumes:
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    network_mode: host
