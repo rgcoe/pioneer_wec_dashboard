@@ -285,6 +285,7 @@ def fetch_ooi_dc_power(hours: int = 72, max_retries: int = 3) -> Optional[pd.Dat
         out_dir = _Path('/app/output')
         out_dir.mkdir(parents=True, exist_ok=True)
         ds = df.to_xarray()
+        ds['time'] = pd.to_datetime(ds['time'].values)
         nc_path = out_dir / 'ooi_data.nc'
         ds.to_netcdf(str(nc_path))
         print(f"Saved OOI data to {nc_path}")
