@@ -122,14 +122,14 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
             rename_map = {'WVHT': 'significant_wave_height',
                           'DPD': 'dominant_period',
                           'WDIR': 'wind_direction',
-                          'MWD': 'mean_wave_direction',
+                          'MWD': 'wave_direction',
                           'WSPD': 'wind_speed'}
 
             df = df.rename(columns=rename_map)
 
             # Only drop rows where ALL columns are NaN (this allows partial data)
             # Coerce key columns to numeric where appropriate (invalid parse -> NaN)
-            for col in ('significant_wave_height', 'dominant_period', 'wind_direction', 'mean_wave_direction', 'wind_speed'):
+            for col in ('significant_wave_height', 'dominant_period', 'wind_direction', 'wave_direction', 'wind_speed'):
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
 
@@ -419,11 +419,11 @@ def resample_and_merge(ndbc_df: pd.DataFrame, ooi_df: pd.DataFrame, freq: str = 
 
     common_index = pd.date_range(min_time, max_time, freq=freq)
 
-    ndbc_interp = ndbc_df.reindex(ndbc_df.index.union(common_index)).interpolate(method='index').loc[common_index]
-    ooi_interp = ooi_df.reindex(ooi_df.index.union(common_index)).interpolate(method='index').loc[common_index]
+    ndbc_interp = ndbc_df.reindex(ndbc_df.index.union(common_index)).interpolate(method='linear').loc[common_index]
+    ooi_interp = ooi_df.reindex(ooi_df.index.union(common_index)).interpolate(method='linear').loc[common_index]
 
     # Select common columns if present
-    left_cols = [c for c in ['significant_wave_height', 'dominant_period', 'wind_direction', 'mean_wave_direction', 'wind_speed'] if c in ndbc_interp.columns]
+    left_cols = [c for c in ['significant_wave_height', 'dominant_period', 'wind_direction', 'wave_direction', 'wind_speed'] if c in ndbc_interp.columns]
     right_cols = [c for c in ['dc_bus_power', 'export_power'] if c in ooi_interp.columns]
 
     merged = pd.concat([ndbc_interp[left_cols], ooi_interp[right_cols]], axis=1)
@@ -461,6 +461,7 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
         print(f"Error merging data for scatter: {e}")
         return None
     merged_df = merged_df.dropna()
+
     
     if len(merged_df) < 10:
         print("Warning: Not enough data points for scatter plot")
@@ -557,7 +558,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     fig.add_trace(
                 go.Scatter(
                     x=df.index,
-                    y=df['mean_wave_direction'].rolling("1H", min_periods=1).mean(),
+                    y=df['wave_direction'].rolling("1H", min_periods=1).mean(),
                     mode="lines",
                     name="Wave direction [°]",
                     line=dict(color="#1f77b4", width=2),
