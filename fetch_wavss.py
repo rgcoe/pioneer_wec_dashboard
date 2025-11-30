@@ -313,18 +313,11 @@ def create_contour_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     
     # Create hourly index for interpolation
     common_index = pd.date_range(min_time, max_time, freq='1H')
-    
-    # Interpolate wave data to common index
-    df_interp = df.reindex(df.index.union(common_index)).interpolate(method='index').loc[common_index]
-    
-    # Interpolate DC power data to common index
-    dc_interp = dc_power_df.reindex(dc_power_df.index.union(common_index)).interpolate(method='index').loc[common_index]
-    
-    # Create merged dataframe
-    merged_df = pd.concat([
-        df_interp[['significant_wave_height', 'dominant_period']],
-        dc_interp[['dc_bus_power']]
-    ], axis=1).dropna()
+    # Use helper function to resample and merge data
+    merged_df = resample_and_merge(df, dc_power_df, freq='1H', start_date=start_date)
+    if merged_df is None or merged_df.empty:
+        print("Warning: merged data empty for contour plot")
+        return None
     
     if len(merged_df) < 20:
         print("Warning: Not enough data points for contour plot")
@@ -379,6 +372,40 @@ def create_contour_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     return fig
 
 
+def resample_and_merge(ndbc_df: pd.DataFrame, ooi_df: pd.DataFrame, freq: str = '1H', start_date: Optional[pd.Timestamp] = None) -> pd.DataFrame:
+    """
+    Resample and merge NDBC and OOI data to a common time index.
+
+    Returns a DataFrame indexed by the common resample `freq` with columns from both inputs.
+    """
+    if ndbc_df is None or ndbc_df.empty:
+        raise ValueError("NDBC dataframe is empty")
+    if ooi_df is None or ooi_df.empty:
+        raise ValueError("OOI dataframe is empty")
+
+    # Apply start_date if provided
+    if start_date is not None:
+        ndbc_df = ndbc_df[ndbc_df.index >= start_date]
+        ooi_df = ooi_df[ooi_df.index >= start_date]
+
+    min_time = max(ndbc_df.index.min(), ooi_df.index.min())
+    max_time = min(ndbc_df.index.max(), ooi_df.index.max())
+    if min_time >= max_time:
+        return pd.DataFrame()
+
+    common_index = pd.date_range(min_time, max_time, freq=freq)
+
+    ndbc_interp = ndbc_df.reindex(ndbc_df.index.union(common_index)).interpolate(method='index').loc[common_index]
+    ooi_interp = ooi_df.reindex(ooi_df.index.union(common_index)).interpolate(method='index').loc[common_index]
+
+    # Select common columns if present
+    left_cols = [c for c in ['significant_wave_height', 'dominant_period', 'wind_direction', 'mean_wave_direction', 'wind_speed'] if c in ndbc_interp.columns]
+    right_cols = [c for c in ['dc_bus_power', 'export_power'] if c in ooi_interp.columns]
+
+    merged = pd.concat([ndbc_interp[left_cols], ooi_interp[right_cols]], axis=1)
+    return merged
+
+
 def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], start_date: Optional[pd.Timestamp] = None) -> Optional[go.Figure]:
     """
     Create a scatter plot of DC power vs wave height with 1-hour resampling.
@@ -403,24 +430,13 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
         df = df[df.index >= start_date]
         dc_power_df = dc_power_df[dc_power_df.index >= start_date]
     
-    # Align the dataframes to same time index using 1-hour resampling
-    min_time = max(df.index.min(), dc_power_df.index.min())
-    max_time = min(df.index.max(), dc_power_df.index.max())
-    
-    # Create hourly index for resampling
-    common_index = pd.date_range(min_time, max_time, freq='1H')
-    
-    # Resample wave data to hourly using mean
-    df_hourly = df[['significant_wave_height']].reindex(df.index.union(common_index)).interpolate(method='index').loc[common_index].resample('1H').mean()
-    
-    # Resample DC power data to hourly using mean
-    dc_hourly = dc_power_df[['dc_bus_power']].reindex(dc_power_df.index.union(common_index)).interpolate(method='index').loc[common_index].resample('1H').mean()
-    
-    # Create merged dataframe
-    merged_df = pd.concat([
-        df_hourly,
-        dc_hourly
-    ], axis=1).dropna()
+    # Use helper to resample and merge NDBC + OOI into one hourly DataFrame
+    try:
+        merged_df = resample_and_merge(df, dc_power_df, freq='1H', start_date=start_date)
+    except Exception as e:
+        print(f"Error merging data for scatter: {e}")
+        return None
+    merged_df = merged_df.dropna()
     
     if len(merged_df) < 10:
         print("Warning: Not enough data points for scatter plot")
