@@ -144,7 +144,18 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
             print(f"Successfully fetched {len(df)} records from NDBC buoy {buoy_id}")
             print(f"Date range: {df.index.min()} to {df.index.max()}")
             print(f"Columns: {list(df.columns)}")
-            
+            # Save NDBC DataFrame to NetCDF for downstream use
+            try:
+                out_dir = _Path('/app/output')
+                out_dir.mkdir(parents=True, exist_ok=True)
+                ds = df.to_xarray()
+                ds['time'] = pd.to_datetime(ds['time'].values)
+                nc_path = out_dir / 'ndbc_data.nc'
+                ds.to_netcdf(str(nc_path))
+                print(f"Saved NDBC data to {nc_path}")
+            except Exception as e:
+                print(f"Warning: failed to write NDBC NetCDF: {e}")
+
             return df
             
         except Exception as e:
@@ -631,7 +642,6 @@ def main():
     try:
         # Fetch data from NDBC buoy 44014 (7 days = 168 hours)
         df = fetch_ndbc_wave_data(buoy_id="44014", hours=168)
-        df.to_csv("/app/output/wavss_ndbc_data.csv")
         
         if df.empty:
             print("Error: No data returned from NDBC", file=sys.stderr)
