@@ -17,6 +17,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
+import xarray as xr
+from pathlib import Path as _Path
 
 
 def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: int = 3) -> pd.DataFrame:
@@ -278,7 +280,17 @@ def fetch_ooi_dc_power(hours: int = 72, max_retries: int = 3) -> Optional[pd.Dat
     
     print(f"Successfully fetched {len(df)} total records from {files_fetched} file(s)")
     print(f"Date range: {df.index.min()} to {df.index.max()}")
-    
+    # Save full OOI DataFrame to NetCDF for downstream use
+    try:
+        out_dir = _Path('/app/output')
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ds = df.to_xarray()
+        nc_path = out_dir / 'ooi_data.nc'
+        ds.to_netcdf(str(nc_path))
+        print(f"Saved OOI data to {nc_path}")
+    except Exception as e:
+        print(f"Warning: failed to write OOI NetCDF: {e}")
+
     return df
 
 
