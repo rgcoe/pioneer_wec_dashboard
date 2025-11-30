@@ -485,7 +485,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                     mode="lines",
                     name="Sig. wave height [m]",
                     line=dict(color="#1f77b4", width=2),
-                    hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Height: %{y:.2f} m<extra></extra>",
+                    hovertemplate="Height: %{y:.2f} m<extra></extra>",
                 ),
                 row=1, col=1
             )
@@ -497,7 +497,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                     mode="lines",
                     name="Dominant wave period [s]",
                     line=dict(color="#1f77b4", width=2),
-                    hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Period: %{y:.2f} s<extra></extra>",
+                    hovertemplate="Period: %{y:.2f} s<extra></extra>",
                 ),
                 row=2, col=1
             )
@@ -509,7 +509,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                     mode="lines",
                     name="Wind speed [m/s]",
                     line=dict(color="#17becf", width=2),
-                    hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Wind: %{y:.2f} m/s<extra></extra>",
+                    hovertemplate="Wind: %{y:.2f} m/s<extra></extra>",
                 ),
                 row=3, col=1
             )
@@ -521,7 +521,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                     mode="lines",
                     name="Wave direction [°]",
                     line=dict(color="#1f77b4", width=2),
-                    hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Wave: %{y:.2f}°<extra></extra>",
+                    hovertemplate="Wave: %{y:.0f}°<extra></extra>",
                 ),
                 row=4, col=1
             )
@@ -533,7 +533,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                     mode="lines",
                     name="Wind direction [°]",
                     line=dict(color="#17becf", width=2),
-                    hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Wind: %{y:.2f}°<extra></extra>",
+                    hovertemplate="Wind: %{y:.0f}°<extra></extra>",
                 ),
                 row=4, col=1
             )
@@ -546,7 +546,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
             mode="lines",
             name="DC bus power [W]",
             line=dict(color="#8c564b", width=2),
-            hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>DC bus: %{y:.1f} W<extra></extra>",
+            hovertemplate="DC bus: %{y:.1f} W<extra></extra>",
         ),
         row=5, col=1
     )
@@ -559,7 +559,7 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
             mode="lines",
             name="Export power [W]",
             line=dict(color="#d750cc", width=2),
-            hovertemplate="%{x|%Y-%m-%d %H:%M UTC}<br>Export: %{y:.1f} W<extra></extra>",
+            hovertemplate="Export: %{y:.1f} W<extra></extra>",
         ),
         row=5, col=1
     )
