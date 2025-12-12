@@ -51,12 +51,19 @@ jobs:
       - name: Create index.html
         uses: gacts/directory-listing@v1
         with:
-          target: ./output
+          target: .
 
-      - uses: peaceiris/actions-gh-pages@v4
+      - name: Create .nojekyll file
+        run: touch .nojekyll
+
+      - name: List directory contents again
+        run: ls -lR .
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./output
+          publish_dir: .
 
   # deploy:
   #   needs: build
