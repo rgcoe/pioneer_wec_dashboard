@@ -5,10 +5,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import matplotlib as mpl
 from datetime import datetime, timedelta
 import plotly
-import seaborn as sns
 from dash import Dash, html, dcc
 import requests
 import logging
