@@ -1,4 +1,4 @@
-name: Build HTML
+name: Build and deploy
 
 on:
   push:
@@ -17,10 +17,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-        # If you need submodules:
-        # with:
-        #   submodules: recursive
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -36,6 +32,19 @@ jobs:
           python app.py
 
       - name: Upload output HTML as artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: ./output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: List directory contents
+        run: ls -l output
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
