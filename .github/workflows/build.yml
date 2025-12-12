@@ -21,7 +21,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .cache
-          key: ${{ runner.os }}-cache
+          key: wec-txt-logs-cache
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,13 +32,13 @@ jobs:
         run: |
           pip install -r requirements.txt || true
 
-      - name: Run script to generate HTML
+      - name: Run Python to plots in HTML
         run: |
           mkdir -p output
           python app.py
 
       - name: List directory contents
-        run: ls -lR output
+        run: ls -lRa output
 
       - name: Upload output HTML as artifact
         uses: actions/upload-artifact@v6
