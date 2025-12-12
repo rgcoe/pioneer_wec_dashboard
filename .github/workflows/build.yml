@@ -37,22 +37,50 @@ jobs:
         with:
           path: ./output
 
-  deploy:
+  make-site:
     needs: build
 
     runs-on: ubuntu-latest
 
-    permissions:
-      id-token: write
-      pages: write
-
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - name: Download output HTML artifact
+        uses: actions/download-artifact@v5
 
       - name: List directory contents
         run: ls -l .
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: List directory contents in output
+        run: ls -l ./output
+
+      - name: Create index.html
+        uses: gacts/directory-listing@v1
+        with:
+          target: ./output
+
+      - name: List directory contents in output after creating index.html
+        run: ls -l ./output
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
+
+  # deploy:
+  #   needs: build
+
+  #   runs-on: ubuntu-latest
+
+  #   permissions:
+  #     id-token: write
+  #     pages: write
+
+  #   steps:
+  #     - name: Download output HTML artifact
+  #       uses: actions/download-artifact@v5
+
+  #     - name: List directory contents
+  #       run: ls -l .
+
+  #     - name: Deploy to GitHub Pages
+  #       id: deployment
+  #       uses: actions/deploy-pages@v4
