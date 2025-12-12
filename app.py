@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # directory to cache raw WEC text files
 WEC_TEXT_CACHE = Path("output/wec_text_cache")
+DATA_DIR = Path("output/data")
 
 
 def _ensure_wec_text_cache_dir() -> None:
@@ -32,6 +33,10 @@ def _ensure_wec_text_cache_dir() -> None:
 
 def _wec_text_cache_file(date_str: str) -> Path:
     return WEC_TEXT_CACHE / f"{date_str}.wec.dec.10.log"
+
+
+def _ensure_data_dir() -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
@@ -372,13 +377,19 @@ def make_time_hist(dstp):
 
 if __name__ == "__main__":
 
+    _ensure_data_dir()
+
     buoys = ["44014", "44079", "41083", "44095"]
     ds_ndbc = xr.concat([fetch_ndbc(buoy_id=buoy_id) for buoy_id in buoys], dim="buoy")
-    ds_ndbc.to_netcdf("output/ndbc_data.nc", engine="h5netcdf", invalid_netcdf=True)
+    ds_ndbc.to_netcdf(
+        os.path.join(DATA_DIR, "ndbc_data.nc"), engine="h5netcdf", invalid_netcdf=True
+    )
 
     start_date = datetime(2025, 11, 3).date()
     ds_wec = fetch_wec_data(start_date=start_date)
-    ds_wec.to_netcdf("output/wec_data.nc", engine="h5netcdf", invalid_netcdf=True)
+    ds_wec.to_netcdf(
+        os.path.join(DATA_DIR, "wec_data.nc"), engine="h5netcdf", invalid_netcdf=True
+    )
 
     ds = resample_and_combine(ds_wec, ds_ndbc)
 
