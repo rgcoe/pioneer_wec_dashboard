@@ -204,7 +204,7 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
                 logger.error(f"Error fetching data for {date_str}: {e}")
                 text_to_parse = None
 
-        if len(text_to_parse) == 0:
+        if text_to_parse is not None and len(text_to_parse) == 0:
             logger.warning(f"Empty WEC text file for {date_str}")
             text_to_parse = None
 
@@ -385,7 +385,7 @@ if __name__ == "__main__":
     )
 
     start_date = datetime(2025, 11, 3).date()
-    ds_wec = fetch_wec_data(start_date=start_date)
+    ds_wec = fetch_wec_data()
     ds_wec.to_netcdf(
         os.path.join(DATA_DIR, "wec_data.nc"), engine="h5netcdf", invalid_netcdf=True
     )
