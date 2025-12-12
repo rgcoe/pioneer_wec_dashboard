@@ -21,7 +21,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .cache
-          key: ${{ runner.os }}-wec_text_cache-${{ github.sha }}
+          key: ${{ runner.os }}-cache
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,6 +36,9 @@ jobs:
         run: |
           mkdir -p output
           python app.py
+
+      - name: List directory contents
+        run: ls -lR output
 
       - name: Upload output HTML as artifact
         uses: actions/upload-artifact@v6
