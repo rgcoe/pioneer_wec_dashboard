@@ -37,6 +37,10 @@ jobs:
           mkdir -p output
           python app.py
 
+      - name: Compress h5 files
+        run: |
+          gzip -9 output/*.h5
+
       - name: List directory contents
         run: ls -lRa output
 
