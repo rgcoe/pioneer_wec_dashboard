@@ -44,7 +44,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: List directory contents
-        run: ls -l output
+        run: ls -l .
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
