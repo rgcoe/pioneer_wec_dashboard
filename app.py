@@ -185,9 +185,6 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
             except Exception as e:
                 logger.warning(f"Failed to read cached WEC file {cache_file}: {e}")
                 text_to_parse = None
-            if len(text_to_parse) == 0:
-                logger.warning(f"Empty WEC text file for {date_str}")
-                text_to_parse = None
         else:
             # download and cache
             try:
@@ -206,6 +203,10 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
             except Exception as e:
                 logger.error(f"Error fetching data for {date_str}: {e}")
                 text_to_parse = None
+
+        if len(text_to_parse) == 0:
+            logger.warning(f"Empty WEC text file for {date_str}")
+            text_to_parse = None
 
         if text_to_parse is not None:
             logger.info(f"Parsing data for {date_str}")
