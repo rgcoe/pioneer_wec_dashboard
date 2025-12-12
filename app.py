@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 # directory to cache raw WEC text files
-WEC_TEXT_CACHE = Path("output/wec_text_cache")
+WEC_TEXT_CACHE = Path(".cache")
 DATA_DIR = Path("output/data")
 
 

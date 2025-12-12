@@ -17,6 +17,12 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Cache data
+        uses: actions/cache@v5
+        with:
+          path: .cache
+          key: ${{ runner.os }}-wec_text_cache-${{ github.sha }}
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
