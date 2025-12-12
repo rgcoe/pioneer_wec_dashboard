@@ -380,13 +380,13 @@ if __name__ == "__main__":
     buoys = ["44014", "44079", "41083", "44095"]
     ds_ndbc = xr.concat([fetch_ndbc(buoy_id=buoy_id) for buoy_id in buoys], dim="buoy")
     ds_ndbc.to_netcdf(
-        os.path.join(DATA_DIR, "ndbc_data.nc"), engine="h5netcdf", invalid_netcdf=True
+        os.path.join(DATA_DIR, "ndbc_data.h5"), engine="h5netcdf", invalid_netcdf=True
     )
 
     start_date = datetime(2025, 11, 3).date()
     ds_wec = fetch_wec_data(start_date=start_date)
     ds_wec.to_netcdf(
-        os.path.join(DATA_DIR, "wec_data.nc"), engine="h5netcdf", invalid_netcdf=True
+        os.path.join(DATA_DIR, "wec_data.h5"), engine="h5netcdf", invalid_netcdf=True
     )
 
     ds = resample_and_combine(ds_wec, ds_ndbc)
