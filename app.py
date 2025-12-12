@@ -384,7 +384,7 @@ if __name__ == "__main__":
     )
 
     start_date = datetime(2025, 11, 3).date()
-    ds_wec = fetch_wec_data()
+    ds_wec = fetch_wec_data(start_date=start_date)
     ds_wec.to_netcdf(
         os.path.join(DATA_DIR, "wec_data.nc"), engine="h5netcdf", invalid_netcdf=True
     )
