@@ -2,8 +2,12 @@ name: Build HTML
 
 on:
   push:
-    branches: ["main"]
-  workflow_dispatch:
+    branches:
+      - main # Optional: specify the branch to run on push events
+  schedule:
+    # Run at the 0th minute of every hour (e.g., 00:00, 01:00, etc.)
+    # Scheduled workflows run on the repository's default branch
+    - cron: "0 * * * *"
 
 jobs:
   build:
@@ -29,7 +33,7 @@ jobs:
       - name: Run script to generate HTML
         run: |
           mkdir -p output
-          python script.py
+          python app.py
 
       - name: Upload output HTML as artifact
         uses: actions/upload-pages-artifact@v3
