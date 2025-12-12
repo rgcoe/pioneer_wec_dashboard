@@ -13,9 +13,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY fetch_wavss.py .
+COPY webapp.py .
 
 # Create output directory
 RUN mkdir -p /app/output
 
-# Run the script
-CMD ["python", "fetch_wavss.py"]
+# Expose Dash default port
+EXPOSE 8050
+
+# Run the Dash webapp continuously
+CMD ["python", "webapp.py"]

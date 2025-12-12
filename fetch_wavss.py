@@ -19,9 +19,11 @@ from plotly.subplots import make_subplots
 import requests
 import xarray as xr
 from pathlib import Path as _Path
+from parse_wec_decimated_log import parse_putty_log
+import matplotlib.pyplot as plt
 
 
-def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: int = 3) -> pd.DataFrame:
+def fetch_ndbc(buoy_id: str = "44014", hours: int = 72, max_retries: int = 3) -> pd.DataFrame:
     """
     Fetch significant wave height data from NDBC buoy via HTTP.
     
@@ -41,7 +43,98 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
     
     print(f"Fetching {hours} hours of NDBC data from {start_time} to {end_time}")
     print(f"Buoy: {buoy_id}")
+    # Simple local cache to avoid re-downloading unchanged NDBC file
+    cache_dir = Path('.cache/ndbc')
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{buoy_id}.txt"
     
+    # If we have a cached file, try parsing it first and use if it's recent enough
+    if cache_file.exists():
+        try:
+            cached_text = cache_file.read_text()
+            lines = cached_text.strip().split('\n')
+            # Attempt to parse header and timestamps from cache to check recency
+            header_line = None
+            data_start_idx = 0
+            for i, line in enumerate(lines):
+                if line.startswith('#YY'):
+                    header_line = line.lstrip('#').strip()
+                    data_start_idx = i + 2
+                    break
+            if header_line is not None:
+                data_lines = '\n'.join(lines[data_start_idx:])
+                cached_df = pd.read_csv(
+                    StringIO(data_lines),
+                    delim_whitespace=True,
+                    na_values=['MM'],
+                    names=header_line.split(),
+                )
+                if all(c in cached_df.columns for c in ['YY', 'MM', 'DD', 'hh', 'mm']):
+                    cached_df['time'] = pd.to_datetime(
+                        cached_df[['YY', 'MM', 'DD', 'hh', 'mm']].rename(
+                            columns={'YY': 'year', 'MM': 'month', 'DD': 'day', 'hh': 'hour', 'mm': 'minute'}
+                        ),
+                        utc=True
+                    )
+                    cached_df = cached_df.set_index('time')
+                    # if cache reaches near the requested end_time (within 30 minutes), use it
+                    if cached_df.index.max() is not None and cached_df.index.max() >= end_time - pd.Timedelta(minutes=30):
+                        df = cached_df[(cached_df.index >= start_time) & (cached_df.index <= end_time)]
+                        df = df.select_dtypes(include=['number'], errors='ignore')
+                        if not df.empty:
+                            df = df.rename(columns={'WVHT': 'significant_wave_height', 'DPD': 'dominant_period', 'APD': 'average_period'})
+                            df = df.dropna(how='all')
+                            df = df.sort_index()
+                            print(f"Using cached NDBC file {cache_file}; {len(df)} records")
+                            return df
+
+                        def fetch_all_ndbc(buoy_ids: list[str], hours: int = 168) -> xr.Dataset | None:
+                            """
+                            Fetch multiple NDBC buoys and return a combined xarray Dataset with a 'buoy' dimension.
+
+                            Each buoy's dataframe is converted to an xarray Dataset and concatenated along
+                            a new 'buoy' dimension. Returns None if no buoy produced valid data.
+                            """
+                            ds_list = []
+                            labels = []
+                            for b in buoy_ids:
+                                try:
+                                    df = fetch_ndbc_wave_data(buoy_id=b, hours=hours)
+                                except Exception:
+                                    df = pd.DataFrame()
+                                if df is None or df.empty:
+                                    continue
+                                try:
+                                    ds = df.to_xarray()
+                                    # ensure time coord exists and is datetime64
+                                    if 'time' not in ds.coords:
+                                        if 'time' in ds:
+                                            ds = ds.rename({'time': 'time'})
+                                    # expand with buoy label
+                                    ds = ds.expand_dims({'buoy': [b]})
+                                    ds_list.append(ds)
+                                    labels.append(b)
+                                except Exception:
+                                    continue
+
+                            if not ds_list:
+                                return None
+
+                            try:
+                                # Concatenate along a buoy coordinate using provided labels
+                                combined = xr.concat(ds_list, dim=pd.Index(labels, name='buoy'))
+                                return combined
+                            except Exception:
+                                # Fallback: try a plain concat without named index
+                                try:
+                                    combined = xr.concat(ds_list, dim='buoy')
+                                    return combined
+                                except Exception:
+                                    return None
+        except Exception:
+            # If cache parsing fails, fall through to fetch remotely
+            pass
+
     # Retry loop for network issues
     for attempt in range(1, max_retries + 1):
         try:
@@ -78,6 +171,11 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
             
             # Parse data from data_start_idx onward
             data_lines = '\n'.join(lines[data_start_idx:])
+            # Save fetched file to cache
+            try:
+                cache_file.write_text(resp.text)
+            except Exception:
+                pass
             df = pd.read_csv(
                 StringIO(data_lines),
                 delim_whitespace=True,
@@ -144,19 +242,21 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
             print(f"Successfully fetched {len(df)} records from NDBC buoy {buoy_id}")
             print(f"Date range: {df.index.min()} to {df.index.max()}")
             print(f"Columns: {list(df.columns)}")
+
+            ds = df.to_xarray()
+            ds['time'] = pd.to_datetime(ds['time'].values)
+
             # Save NDBC DataFrame to NetCDF for downstream use
             try:
                 out_dir = _Path('/app/output')
                 out_dir.mkdir(parents=True, exist_ok=True)
-                ds = df.to_xarray()
-                ds['time'] = pd.to_datetime(ds['time'].values)
                 nc_path = out_dir / 'ndbc_data.nc'
                 ds.to_netcdf(str(nc_path))
                 print(f"Saved NDBC data to {nc_path}")
             except Exception as e:
                 print(f"Warning: failed to write NDBC NetCDF: {e}")
 
-            return df
+            return ds
             
         except Exception as e:
             print(f"Attempt {attempt}/{max_retries} failed: {e}", file=sys.stderr)
@@ -168,7 +268,7 @@ def fetch_ndbc_wave_data(buoy_id: str = "44014", hours: int = 72, max_retries: i
                 raise
 
 
-def fetch_ooi_dc_power(hours: int = 72, max_retries: int = 3) -> Optional[pd.DataFrame]:
+def fetch_wec(hours: int = 72, max_retries: int = 3) -> Optional[pd.DataFrame]:
     """
     Fetch DC bus power data from OOI CP10CNSM decimated logs.
     
@@ -191,6 +291,9 @@ def fetch_ooi_dc_power(hours: int = 72, max_retries: int = 3) -> Optional[pd.Dat
     
     print(f"\nFetching OOI DC power data from {start_time} to {end_time}")
     print(f"Will fetch multiple daily files to cover full {hours}-hour window")
+    # Simple cache for daily OOI log files
+    ooi_cache_dir = Path('.cache/ooi')
+    ooi_cache_dir.mkdir(parents=True, exist_ok=True)
     
     # Generate list of dates to try (most recent first)
     # For 72 hours, we might need up to 4 days of data depending on time boundaries
@@ -205,140 +308,161 @@ def fetch_ooi_dc_power(hours: int = 72, max_retries: int = 3) -> Optional[pd.Dat
     files_fetched = 0
     
     # Fetch from multiple dates to ensure full coverage
+    dsl = []
     for attempt_date in dates_to_try:
         date_str = attempt_date.strftime("%Y%m%d")
         file_url = f"{base_url}/{date_str}.wec.dec.10.log"
-        
-        for attempt in range(1, max_retries + 1):
+        cache_file = ooi_cache_dir / f"{date_str}.wec.dec.10.log"
+
+        text_to_parse = None
+        # Use cached file if present
+        if cache_file.exists():
             try:
-                print(f"Fetching {date_str}.wec.dec.10.log")
-                resp = requests.get(file_url, timeout=30)
-                
-                if resp.status_code == 404:
-                    # File doesn't exist, try next date
-                    print(f"  → File not found")
-                    break
-                
-                resp.raise_for_status()
-                
-                # Parse the log file
-                # Format: YYYY/MM/DD HH:MM:SS.sss ... DcP: <value> ...
-                data_count = 0
-                for line in resp.text.strip().split('\n'):
-                    if not line.strip():
-                        continue
-                    
+                print(f"Using cached {cache_file}")
+                text_to_parse = cache_file.read_text()
+            except Exception:
+                text_to_parse = None
+
+        # If not cached, attempt to download
+        if text_to_parse is None:
+            for attempt in range(1, max_retries + 1):
+                try:
+                    print(f"Fetching {date_str}.wec.dec.10.log")
+                    resp = requests.get(file_url, timeout=30)
+
+                    if resp.status_code == 404:
+                        # File doesn't exist, try next date
+                        print(f"  → File not found")
+                        text_to_parse = None
+                        break
+
+                    resp.raise_for_status()
+                    text_to_parse = resp.text
+                    # Save to cache
                     try:
-                        # Extract timestamp (YYYY/MM/DD HH:MM:SS.sss)
-                        parts = line.split()
-                        if len(parts) < 2:
-                            continue
-                        
-                        date_part = parts[0]  # YYYY/MM/DD
-                        time_part = parts[1]  # HH:MM:SS.sss
-                        
-                        # Parse datetime
-                        dt = pd.to_datetime(f"{date_part} {time_part}", utc=True)
-                        
-                        # Extract DcP and ExP values using regex patterns
-                        dcp_match = re.search(r'DcP:\s*([-+]?\d+\.?\d*e[+-]?\d+|[-+]?\d+\.?\d*)', line)
-                        exp_match = re.search(r'ExP:\s*([-+]?\d+\.?\d*e[+-]?\d+|[-+]?\d+\.?\d*)', line)
-                        if dcp_match or exp_match:
-                            row_data = {'time': dt}
-                            if dcp_match:
-                                dcp_value = float(dcp_match.group(1))
-                                # Reverse sign by multiplying by -1
-                                row_data['dc_bus_power'] = -dcp_value
-                            if exp_match:
-                                exp_value = float(exp_match.group(1))
-                                row_data['export_power'] = exp_value - 8
-                            all_data.append(row_data)
-                            data_count += 1
-                    except (ValueError, IndexError):
-                        continue
-                
-                if data_count > 0:
-                    print(f"  → Fetched {data_count} records from {date_str}")
-                    files_fetched += 1
-                else:
-                    print(f"  → No valid data in {date_str}")
-                
-                # Continue to next date, don't break (we want to fetch multiple files)
-                break
-                
-            except Exception as e:
-                print(f"  Attempt {attempt}/{max_retries} failed: {e}")
-                if attempt < max_retries:
-                    time.sleep(2 * attempt)
-                else:
+                        cache_file.write_text(resp.text)
+                    except Exception:
+                        pass
                     break
+
+                except Exception as e:
+                    print(f"  Attempt {attempt}/{max_retries} failed: {e}")
+                    if attempt < max_retries:
+                        time.sleep(2 * attempt)
+                    else:
+                        text_to_parse = None
+                        break
+
+        # Parse if we have text
+        if text_to_parse:
+            ds, _ = parse_putty_log(text_to_parse)
+            dsl.append(ds)
+
+            # data_count = 0
+            # for line in text_to_parse.strip().split('\n'):
+            #     if not line.strip():
+            #         continue
+
+            #     try:
+            #         parts = line.split()
+            #         if len(parts) < 2:
+            #             continue
+
+            #         date_part = parts[0]
+            #         time_part = parts[1]
+            #         dt = pd.to_datetime(f"{date_part} {time_part}", utc=True)
+
+            #         dcp_match = re.search(r'DcP:\s*([-+]?\d+\.?\d*e[+-]?\d+|[-+]?\d+\.?\d*)', line)
+            #         exp_match = re.search(r'ExP:\s*([-+]?\d+\.?\d*e[+-]?\d+|[-+]?\d+\.?\d*)', line)
+            #         if dcp_match or exp_match:
+            #             row_data = {'time': dt}
+            #             if dcp_match:
+            #                 dcp_value = float(dcp_match.group(1))
+            #                 row_data['dc_bus_power'] = -dcp_value
+            #             if exp_match:
+            #                 exp_value = float(exp_match.group(1))
+            #                 row_data['export_power'] = exp_value - 8
+            #             all_data.append(row_data)
+            #             data_count += 1
+            #     except (ValueError, IndexError):
+            #         continue
+
+            # if data_count > 0:
+            #     print(f"  → Fetched {data_count} records from {date_str}")
+            #     files_fetched += 1
+            # else:
+            #     print(f"  → No valid data in {date_str}")
     
-    if not all_data:
-        print("Warning: Could not fetch OOI DC power data. Proceeding with NDBC data only.")
-        return None
+    # if not all_data:
+    #     print("Warning: Could not fetch OOI DC power data. Proceeding with NDBC data only.")
+    #     return None
     
-    # Combine all fetched data into single DataFrame
-    df = pd.DataFrame(all_data)
-    df = df.set_index('time')
-    df = df.sort_index()
+    ds = xr.concat(dsl, dim='time').sortby('time')
+
+
+    # # Combine all fetched data into single DataFrame
+    # df = pd.DataFrame(all_data)
+    # df = df.set_index('time')
+    # df = df.sort_index()
     
-    # Filter to requested time range
-    df = df[(df.index >= start_time) & (df.index <= end_time)]
+    # # Filter to requested time range
+    # df = df[(df.index >= start_time) & (df.index <= end_time)]
     
-    if df.empty:
-        print("Warning: No OOI data within time range. Proceeding with NDBC data only.")
-        return None
+    # if df.empty:
+    #     print("Warning: No OOI data within time range. Proceeding with NDBC data only.")
+    #     return None
     
-    print(f"Successfully fetched {len(df)} total records from {files_fetched} file(s)")
-    print(f"Date range: {df.index.min()} to {df.index.max()}")
+    # print(f"Successfully fetched {len(df)} total records from {files_fetched} file(s)")
+    # print(f"Date range: {df.index.min()} to {df.index.max()}")
     # Save full OOI DataFrame to NetCDF for downstream use
     try:
         out_dir = _Path('/app/output')
         out_dir.mkdir(parents=True, exist_ok=True)
-        ds = df.to_xarray()
-        ds['time'] = pd.to_datetime(ds['time'].values)
+        # ds = df.to_xarray()
+        # ds['time'] = pd.to_datetime(ds['time'].values)
         nc_path = out_dir / 'ooi_data.nc'
         ds.to_netcdf(str(nc_path))
         print(f"Saved OOI data to {nc_path}")
     except Exception as e:
         print(f"Warning: failed to write OOI NetCDF: {e}")
 
-    return df
+    return ds
 
 
-def create_contour_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], start_date: Optional[pd.Timestamp] = None) -> Optional[go.Figure]:
+def create_contour_plot(df: pd.DataFrame, wec_ds: Optional[pd.DataFrame], start_date: Optional[pd.Timestamp] = None) -> Optional[go.Figure]:
     """
     Create a contour plot showing DC bus power as a function of wave period (x) and height (y).
     
     Args:
         df: DataFrame with wave height and period data
-        dc_power_df: DataFrame with DC power data
+        wec_ds: DataFrame with DC power data
         start_date: Optional start date for filtering data (default: None, uses all data)
     
     Returns:
         Plotly Figure object or None if data is insufficient
     """
-    if dc_power_df is None or dc_power_df.empty:
-        return None
+    # if wec_ds is None or wec_ds.empty:
+    #     return None
     
     # Check if we have both wave height and period
-    if 'significant_wave_height' not in df.columns or 'dominant_period' not in df.columns:
-        return None
+    # if 'significant_wave_height' not in df.columns or 'dominant_period' not in df.columns:
+    #     return None
     
     # Filter by start date if provided
     if start_date is not None:
         df = df[df.index >= start_date]
-        dc_power_df = dc_power_df[dc_power_df.index >= start_date]
+        wec_ds = wec_ds[wec_ds.time >= start_date]
     
     # Align the dataframes to same time index using interpolation
     # Create a common index and interpolate both datasets to that index
-    min_time = max(df.index.min(), dc_power_df.index.min())
-    max_time = min(df.index.max(), dc_power_df.index.max())
+    min_time = max(df.index.min(), wec_ds.time.min())
+    max_time = min(df.index.max(), wec_ds.time.max())
+    print("Contour plot data range:", min_time, "to", max_time)
     
     # Create hourly index for interpolation
     common_index = pd.date_range(min_time, max_time, freq='1H')
     # Use helper function to resample and merge data
-    merged_df = resample_and_merge(df, dc_power_df, freq='1H', start_date=start_date)
+    merged_df = resample_and_merge(df, wec_ds, freq='1H', start_date=start_date)
     if merged_df is None or merged_df.empty:
         print("Warning: merged data empty for contour plot")
         return None
@@ -384,7 +508,7 @@ def create_contour_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     ))
     
     fig.update_layout(
-        title="DC Bus Power vs Wave Height & Dominant Period (Last 7 Days)",
+        title="DC Bus Power vs Wave Height & Dominant Period",
         xaxis_title="Dominant Wave Period (s)",
         yaxis_title="Significant Wave Height (m)",
         template="plotly_white",
@@ -396,31 +520,31 @@ def create_contour_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     return fig
 
 
-def resample_and_merge(ndbc_df: pd.DataFrame, ooi_df: pd.DataFrame, freq: str = '1H', start_date: Optional[pd.Timestamp] = None) -> pd.DataFrame:
+def resample_and_merge(ndbc_ds: xr.Dataset, wec_ds: xr.Dataset, freq: str = '1H', start_date: Optional[pd.Timestamp] = None) -> pd.DataFrame:
     """
     Resample and merge NDBC and OOI data to a common time index.
 
     Returns a DataFrame indexed by the common resample `freq` with columns from both inputs.
     """
-    if ndbc_df is None or ndbc_df.empty:
-        raise ValueError("NDBC dataframe is empty")
-    if ooi_df is None or ooi_df.empty:
-        raise ValueError("OOI dataframe is empty")
+    # if ndbc_ds is None or ndbc_ds.empty:
+    #     raise ValueError("NDBC dataframe is empty")
+    # if wec_ds is None or wec_ds.empty:
+    #     raise ValueError("OOI dataframe is empty")
 
     # Apply start_date if provided
     if start_date is not None:
-        ndbc_df = ndbc_df[ndbc_df.index >= start_date]
-        ooi_df = ooi_df[ooi_df.index >= start_date]
+        ndbc_ds = ndbc_ds[ndbc_ds.time >= start_date]
+        wec_ds = wec_ds[wec_ds.index >= start_date]
 
-    min_time = max(ndbc_df.index.min(), ooi_df.index.min())
-    max_time = min(ndbc_df.index.max(), ooi_df.index.max())
+    min_time = max(ndbc_ds.time.min(), wec_ds.index.min())
+    max_time = min(ndbc_ds.time.max(), wec_ds.index.max())
     if min_time >= max_time:
         return pd.DataFrame()
 
     common_index = pd.date_range(min_time, max_time, freq=freq)
 
-    ndbc_interp = ndbc_df.reindex(ndbc_df.index.union(common_index)).interpolate(method='linear').loc[common_index]
-    ooi_interp = ooi_df.reindex(ooi_df.index.union(common_index)).interpolate(method='linear').loc[common_index]
+    ndbc_interp = ndbc_ds.reindex(ndbc_ds.time.union(common_index)).interpolate(method='linear').loc[common_index]
+    ooi_interp = wec_ds.reindex(wec_ds.index.union(common_index)).interpolate(method='linear').loc[common_index]
 
     # Select common columns if present
     left_cols = [c for c in ['significant_wave_height', 'dominant_period', 'wind_direction', 'wave_direction', 'wind_speed'] if c in ndbc_interp.columns]
@@ -442,12 +566,12 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     Returns:
         Plotly Figure object or None if data is insufficient
     """
-    if dc_power_df is None or dc_power_df.empty:
-        return None
+    # if dc_power_df is None or dc_power_df.empty:
+    #     return None
     
     # Check if we have wave height
-    if 'significant_wave_height' not in df.columns:
-        return None
+    # if 'significant_wave_height' not in df.columns:
+    #     return None
     
     # Filter by start date if provided
     if start_date is not None:
@@ -461,7 +585,7 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
         print(f"Error merging data for scatter: {e}")
         return None
     merged_df = merged_df.dropna()
-
+    angle_difference = np.abs(merged_df['wave_direction'] - merged_df['wind_direction']) % 180
     
     if len(merged_df) < 10:
         print("Warning: Not enough data points for scatter plot")
@@ -471,7 +595,7 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     
     fig.add_trace(go.Scatter(
         x=merged_df['significant_wave_height'],
-        y=merged_df['dc_bus_power'],
+        y=angle_difference,
         mode='markers',
         marker=dict(
             size=8,
@@ -481,14 +605,14 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
             colorbar=dict(title="DC Power<br>(W)"),
             line=dict(width=0.5, color='white'),
         ),
-        name='DC Power vs Wave Height',
-        hovertemplate="Height: %{x:.2f} m<br>Power: %{y:.1f} W<extra></extra>",
+        name='DC Power',
+        hovertemplate="Height: %{x:.2f} m<br>Angle: %{y:.1f}°<br>Power: %{marker.color:1.f} W <extra></extra>",
     ))
     
     fig.update_layout(
-        title="DC Bus Power vs Wave Height (1-Hour Resampled, Last 7 Days)",
+        title="DC Bus Power vs Wave Height",
         xaxis_title="Significant Wave Height (m)",
-        yaxis_title="DC Bus Power (W)",
+        yaxis_title="Wind/wave Direction Difference (°)",
         template="plotly_white",
         height=600,
         width=800,
@@ -498,16 +622,16 @@ def create_scatter_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], s
     return fig
 
 
-def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_path: Path) -> None:
+def create_plot(ndbc_ds: pd.DataFrame, wec_ds: Optional[pd.DataFrame], output_path: Path) -> None:
     """
     Create an interactive Plotly graph with wave and DC power data.
     
     Args:
-        df: DataFrame with time index and wave data (WVHT and/or APD columns)
-        dc_power_df: Optional DataFrame with DC power data
+        ndbc_ds: DataFrame with time index and wave data (WVHT and/or APD columns)
+        wec_ds: Optional DataFrame with DC power data
         output_path: Path to save the HTML file
     """
-    print(f"Creating plot with columns: {list(df.columns)}")
+    # print(f"Creating plot with columns: {list(ndbc_ds.columns)}")
     
     # Determine number of subplots (wave height, period, dc power, directions)
     num_subplots = 5
@@ -521,8 +645,8 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     
     fig.add_trace(
                 go.Scatter(
-                    x=df.index,
-                    y=df['significant_wave_height'].rolling("1H", min_periods=1).mean(),
+                    x=ndbc_ds['significant_wave_height'].dropna('time').rolling(time=6).mean().time,
+                    y=ndbc_ds['significant_wave_height'].dropna('time').rolling(time=6).mean(),
                     mode="lines",
                     name="Sig. wave height [m]",
                     line=dict(color="#1f77b4", width=2),
@@ -533,8 +657,8 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     
     fig.add_trace(
                 go.Scatter(
-                    x=df.index,
-                    y=df['dominant_period'].rolling("1H", min_periods=1).mean(),
+                    x=ndbc_ds['dominant_period'].dropna('time').rolling(time=6).mean().time,
+                    y=ndbc_ds['dominant_period'].dropna('time').rolling(time=6).mean(),
                     mode="lines",
                     name="Dominant wave period [s]",
                     line=dict(color="#1f77b4", width=2),
@@ -545,8 +669,8 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     
     fig.add_trace(
                 go.Scatter(
-                    x=df.index,
-                    y=df['wind_speed'].rolling("1H", min_periods=1).mean(),
+                    x=ndbc_ds['wind_speed'].dropna('time').rolling(time=6).mean().time,
+                    y=ndbc_ds['wind_speed'].dropna('time').rolling(time=6).mean(),
                     mode="lines",
                     name="Wind speed [m/s]",
                     line=dict(color="#17becf", width=2),
@@ -557,8 +681,8 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     
     fig.add_trace(
                 go.Scatter(
-                    x=df.index,
-                    y=df['wave_direction'].rolling("1H", min_periods=1).mean(),
+                    x=ndbc_ds['wave_direction'].dropna('time').rolling(time=6).mean().time,
+                    y=ndbc_ds['wave_direction'].dropna('time').rolling(time=6).mean(),
                     mode="lines",
                     name="Wave direction [°]",
                     line=dict(color="#1f77b4", width=2),
@@ -569,8 +693,8 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     
     fig.add_trace(
                 go.Scatter(
-                    x=df.index,
-                    y=df['wind_direction'].rolling("1H", min_periods=1).mean(),
+                    x=ndbc_ds['wind_direction'].dropna('time').rolling(time=6).mean().time,
+                    y=ndbc_ds['wind_direction'].dropna('time').rolling(time=6).mean(),
                     mode="lines",
                     name="Wind direction [°]",
                     line=dict(color="#17becf", width=2),
@@ -579,10 +703,10 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
                 row=4, col=1
             )
 
-    rolling_mean_dcp = dc_power_df['dc_bus_power'].rolling("1H", min_periods=1).mean()
+    rolling_mean_dcp = wec_ds['DcP'].dropna('time').rolling(time=6*60).mean()
     fig.add_trace(
         go.Scatter(
-            x=rolling_mean_dcp.index,
+            x=rolling_mean_dcp.time,
             y=rolling_mean_dcp,
             mode="lines",
             name="DC bus power [W]",
@@ -592,11 +716,11 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
         row=5, col=1
     )
 
-    rolling_mean_dcp = dc_power_df['export_power'].rolling("1H", min_periods=1).mean()
+    rolling_mean_exp = wec_ds['ExP'].dropna('time').rolling(time=6*60).mean()
     fig.add_trace(
         go.Scatter(
-            x=rolling_mean_dcp.index,
-            y=rolling_mean_dcp,
+            x=rolling_mean_exp.time,
+            y=rolling_mean_exp,
             mode="lines",
             name="Export power [W]",
             line=dict(color="#d750cc", width=2),
@@ -604,13 +728,9 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
         ),
         row=5, col=1
     )
-
-    
-    # Update layout
-    title = "NDBC Buoy 44014 & OOI CP10CNSM"
     
     fig.update_layout(
-        title=title,
+        title="Pioneer WEC",
         template="plotly_white",
         hovermode="x unified",
         height=300 * num_subplots,
@@ -634,49 +754,112 @@ def create_plot(df: pd.DataFrame, dc_power_df: Optional[pd.DataFrame], output_pa
     print(f"Plot saved to {output_path}")
 
 
+def fetch_all_ndbc(buoy_ids: list[str], hours: int = 168) -> xr.Dataset | None:
+    """
+    Fetch multiple NDBC buoys and return a combined xarray Dataset with a 'buoy' dimension.
+
+    Each buoy's dataframe is converted to an xarray Dataset and concatenated along
+    a new 'buoy' dimension. Returns None if no buoy produced valid data.
+    """
+    ds_list = []
+    labels = []
+    for b in buoy_ids:
+        try:
+            res = fetch_ndbc(buoy_id=b, hours=hours)
+        except Exception:
+            res = None
+        if res is None:
+            continue
+        # res may be a pandas.DataFrame or an xarray.Dataset
+        try:
+            if isinstance(res, xr.Dataset):
+                ds = res
+            elif isinstance(res, pd.DataFrame):
+                ds = res.to_xarray()
+            else:
+                # try convert
+                ds = res.to_xarray()
+        except Exception:
+            continue
+        try:
+            # expand with buoy label
+            ds = ds.expand_dims({'buoy': [b]})
+            ds_list.append(ds)
+            labels.append(b)
+        except Exception:
+            continue
+
+    if not ds_list:
+        return None
+
+    try:
+        combined = xr.concat(ds_list, dim=pd.Index(labels, name='buoy'))
+        return combined
+    except Exception:
+        try:
+            combined = xr.concat(ds_list, dim='buoy')
+            return combined
+        except Exception:
+            return None
+
+
 def main():
     """Main entry point."""
     output_file = Path("/app/output/wavss_plot.html")
     contour_file = Path("/app/output/wavss_contour.html")
     scatter_file = Path("/app/output/wavss_scatter.html")
+
+    duration = 4*7*24
     
-    try:
-        # Fetch data from NDBC buoy 44014 (7 days = 168 hours)
-        df = fetch_ndbc_wave_data(buoy_id="44014", hours=168)
+    # try:
+    # Fetch data from NDBC buoy 44014
+    ndbc_ds = fetch_ndbc(buoy_id="44014", hours=duration)
+    # Also fetch additional buoys and save combined NetCDF
+    buoys = ["44014", "44079", "41083", "44095"]
+    combined_ds = fetch_all_ndbc(buoy_ids=buoys, hours=duration)
+    if combined_ds is not None:
+        try:
+            out_dir = _Path('/app/output')
+            out_dir.mkdir(parents=True, exist_ok=True)
+            combined_path = out_dir / 'ndbc_multi_buoys.nc'
+            combined_ds.to_netcdf(str(combined_path))
+            print(f"Saved combined NDBC data to {combined_path}")
+        except Exception as e:
+            print(f"Warning: failed to write combined NDBC NetCDF: {e}")
+    
+    # if df.empty:
+    #     print("Error: No data returned from NDBC", file=sys.stderr)
+    #     sys.exit(1)
+    
+    # Try to fetch OOI DC power data
+    wec_ds = fetch_wec(hours=duration)
+    
+    # Create time series plot with both datasets
+    create_plot(ndbc_ds, wec_ds, output_file)
+    
+    # Create contour and scatter plots using data starting 2025-11-03
+    start_date = pd.Timestamp("2025-11-03T00:00:00Z")
+    # Create contour plot
+    # contour_fig = create_contour_plot(df, dc_power_df, start_date=None)
+    # if contour_fig:
+    #     contour_file.parent.mkdir(parents=True, exist_ok=True)
+    #     contour_fig.write_html(str(contour_file), include_plotlyjs="cdn")
+    #     print(f"Contour plot saved to {contour_file}")
+    
+    # Create scatter plot
+    # scatter_fig = create_scatter_plot(df, dc_power_df, start_date=None)
+    # if scatter_fig:
+    #     scatter_file.parent.mkdir(parents=True, exist_ok=True)
+    #     scatter_fig.write_html(str(scatter_file), include_plotlyjs="cdn")
+    #     print(f"Scatter plot saved to {scatter_file}")
+    
+    print("Success!")
         
-        if df.empty:
-            print("Error: No data returned from NDBC", file=sys.stderr)
-            sys.exit(1)
-        
-        # Try to fetch OOI DC power data (optional, 7 days)
-        dc_power_df = fetch_ooi_dc_power(hours=168)
-        
-        # Create time series plot with both datasets
-        create_plot(df, dc_power_df, output_file)
-        
-        # Create contour and scatter plots using data starting 2025-11-03
-        start_date = pd.Timestamp("2025-11-03T00:00:00Z")
-        # Create contour plot
-        contour_fig = create_contour_plot(df, dc_power_df, start_date=start_date)
-        if contour_fig:
-            contour_file.parent.mkdir(parents=True, exist_ok=True)
-            contour_fig.write_html(str(contour_file), include_plotlyjs="cdn")
-            print(f"Contour plot saved to {contour_file}")
-        
-        # Create scatter plot
-        scatter_fig = create_scatter_plot(df, dc_power_df, start_date=start_date)
-        if scatter_fig:
-            scatter_file.parent.mkdir(parents=True, exist_ok=True)
-            scatter_fig.write_html(str(scatter_file), include_plotlyjs="cdn")
-            print(f"Scatter plot saved to {scatter_file}")
-        
-        print("Success!")
-        
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    # except Exception as e:
+    #     print(f"Error: {e}", file=sys.stderr)
+    #     import traceback
+    #     traceback.print_exc()
+    #     sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,29 @@ services:
     build: .
     container_name: pioneer_wavss_fetch
     volumes:
+      - .:/app:cached
       - ./output:/app/output
     environment:
       - PYTHONUNBUFFERED=1
-    network_mode: host
+      - POLL_INTERVAL=60
+    command:
+      # ["python", "fetch_wavss.py"]
+      [
+        "sh",
+        "-c",
+        "while true; do python fetch_wavss.py || true; sleep ${POLL_INTERVAL:-60}; done",
+      ]
+    restart: unless-stopped
+
+  wavss-web:
+    build: .
+    container_name: pioneer_wavss_web
+    volumes:
+      - .:/app:cached
+      - ./output:/app/output
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8050:8050"
+    command: ["python", "webapp.py"]
+    restart: unless-stopped
