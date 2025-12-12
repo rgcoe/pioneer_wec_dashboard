@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import plotly
-from dash import Dash, html, dcc
 import requests
 import logging
 from parse_wec_decimated_log import parse_putty_log
