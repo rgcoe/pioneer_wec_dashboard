@@ -7,7 +7,7 @@ on:
   schedule:
     # Run at the 0th minute of every hour (e.g., 00:00, 01:00, etc.)
     # Scheduled workflows run on the repository's default branch
-    - cron: "0 * * * *"
+    - cron: "* */6 * * *"
 
 jobs:
   build:
