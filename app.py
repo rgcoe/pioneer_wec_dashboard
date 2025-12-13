@@ -287,22 +287,6 @@ def make_scatter_3d(ds):
 
 
 def make_time_hist(dstp):
-    def to_df(var):
-        da = dstp[var]
-        # ensure dims are (time, buoy)
-        if "buoy" in da.dims and da.dims[0] == "buoy":
-            da = da.transpose("time", "buoy")
-        df = da.to_pandas()
-        if isinstance(df, pd.Series):
-            df = df.to_frame(name=var)
-        return df
-
-    swh = to_df("WVHT")
-    wind = to_df("WSPD")
-    period = to_df("DPD")
-    wave_dir = to_df("MWD")
-    wind_dir = to_df("WDIR")
-    dc = dstp["DcP"].to_pandas()
 
     # no subplot titles; show info in y-axis labels instead
     fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03)
@@ -344,11 +328,23 @@ def make_time_hist(dstp):
                 col=1,
             )
 
-    # DC bus power (single series)
     fig.add_trace(
         go.Scatter(
-            x=dc.index,
-            y=dc.values,
+            x=dstp["ExP"].time,
+            y=dstp["ExP"],
+            name="Export power",
+            mode="lines",
+            line=dict(color="#ff0eb3"),
+            hovertemplate="%{y:.1f} W",
+        ),
+        row=5,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=dstp["DcP"].time,
+            y=dstp["DcP"],
             name="DC bus power",
             mode="lines",
             line=dict(color="black"),
@@ -387,17 +383,50 @@ def make_time_hist(dstp):
     return fig
 
 
+def make_histograms(ds):
+    df = ds[["DcP", "ExP"]].to_array(dim="type").to_pandas().transpose()
+    df.rename(columns={"DcP": "DC", "ExP": "Export"}, inplace=True)
+
+    fig = px.histogram(
+        df,
+        marginal="box",
+        labels={"value": "Power (W)", "type": "Type"},
+        color_discrete_sequence=["black", "#ff0eb3"],
+        orientation="h",
+    )
+
+    fig.update_layout(
+        xaxis_title="Count",
+        yaxis_title="Power (W)",
+    )
+    fig.update_yaxes(range=[0, np.infty])
+
+    fig.update_layout(
+        template="simple_white",
+        # hovermode="y unified",
+        # height=1000,
+        # margin=dict(l=60, r=40, t=100, b=50),
+        # showlegend=False,
+        # font=dict(size=10),
+    )
+
+    return fig
+
+
 def make_correlation_matrix(ds):
     ds0 = ds.mean("buoy")
     fig = px.scatter_matrix(
-        ds0[["WVHT", "WSPD", "DPD", "APD", "dir_diff", "DcP", "Vel"]].to_pandas(),
+        ds0[
+            ["WVHT", "WSPD", "DPD", "APD", "dir_diff", "DcP", "ExP", "Vel"]
+        ].to_pandas(),
         labels={
             "WVHT": "Wave Height<br>(m)",
             "WSPD": "Wind Speed<br>(m/s)",
             "DPD": "Peak Period<br>(s)",
             "APD": "Average period<br>(s)",
-            "dir_diff": "Wave/wind direction diff.<br>(deg)",
+            "dir_diff": "Wave/wind direction<br>diff.(deg)",
             "DcP": "DC power<br>(W)",
+            "ExP": "Export power<br>(W)",
             "Vel": "RMS velocity<br>(deg/s)",
         },
         width=800,
@@ -532,6 +561,8 @@ if __name__ == "__main__":
 
     ds = resample_and_combine(ds_wec, ds_ndbc)
 
+    logger.info("Generating plots")
+
     fig1 = make_scatter_3d(ds)
     fig1.write_html("output/scatter_3d.html")
 
@@ -549,6 +580,9 @@ if __name__ == "__main__":
 
     fig6 = make_cw_matrix(ds)
     fig6.write_html("output/cw_matrix.html")
+
+    fig7 = make_histograms(ds)
+    fig7.write_html("output/histograms.html")
 
     fig8 = make_gain_scatter(ds)
     fig8.write_html("output/gain_scatter.html")
