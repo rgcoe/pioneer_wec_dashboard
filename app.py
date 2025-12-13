@@ -411,7 +411,7 @@ def make_jpd(ds):
     return fig
 
 
-def make_power_grid(ds):
+def make_power_matrix(ds):
     ds0 = ds.mean("buoy")
     fig = px.density_heatmap(
         ds0[["DPD", "WVHT", "DcP"]],
@@ -474,5 +474,5 @@ if __name__ == "__main__":
     fig4 = make_jpd(ds)
     fig4.write_html("output/jpd.html")
 
-    fig5 = make_power_grid(ds)
-    fig5.write_html("output/power_grid.html")
+    fig5 = make_power_matrix(ds)
+    fig5.write_html("output/power_matrix.html")
