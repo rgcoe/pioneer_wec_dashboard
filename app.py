@@ -437,6 +437,7 @@ def make_power_grid(ds):
                 size=5,  # Set point size
                 opacity=0.25,  # Set point opacity
             ),
+            hoverinfo="skip",
         )
     )
 
