@@ -373,6 +373,76 @@ def make_time_hist(dstp):
     return fig
 
 
+def make_correlation_matrix(ds):
+    ds0 = ds.mean("buoy")
+    fig = px.scatter_matrix(
+        ds0[["WVHT", "WSPD", "DPD", "APD", "dir_diff", "DcP", "Vel"]].to_pandas(),
+        labels={
+            "WVHT": "Wave Height<br>(m)",
+            "WSPD": "Wind Speed<br>(m/s)",
+            "DPD": "Peak Period<br>(s)",
+            "APD": "Average period<br>(s)",
+            "dir_diff": "Wave/wind direction diff.<br>(deg)",
+            "DcP": "DC power<br>(W)",
+            "Vel": "RMS velocity<br>(deg/s)",
+        },
+        width=800,
+        height=800,
+    )
+    fig.update_layout(
+        font=dict(size=8),
+    )
+    fig.update_traces(marker=dict(size=5, color="black", opacity=0.25))
+    return fig
+
+
+def make_jpd(ds):
+    ds0 = ds.mean("buoy")
+    fig = px.density_heatmap(
+        ds0[["DPD", "WVHT"]],
+        x="DPD",
+        y="WVHT",
+        #  color_continuous_scale='Viridis',
+        labels={"DPD": "Peak Wave Period (s)", "WVHT": "Significant Wave Height (m)"},
+        marginal_x="histogram",
+        marginal_y="histogram",
+    )
+
+    return fig
+
+
+def make_power_grid(ds):
+    ds0 = ds.mean("buoy")
+    fig = px.density_heatmap(
+        ds0[["DPD", "WVHT", "DcP"]],
+        x="DPD",
+        y="WVHT",
+        z="DcP",
+        color_continuous_scale="Reds",
+        histfunc="avg",
+        labels={
+            "DPD": "Peak Wave Period (s)",
+            "WVHT": "Significant Wave Height (m)",
+            "DcP": "DC power (w)",
+        },
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=ds0["DPD"],
+            y=ds0["WVHT"],
+            mode="markers",
+            marker=dict(
+                color="black",  # Set point color to black
+                size=5,  # Set point size
+                opacity=0.25,  # Set point opacity
+            ),
+        )
+    )
+
+    return fig
+
+
 if __name__ == "__main__":
 
     _ensure_data_dir()
@@ -396,3 +466,12 @@ if __name__ == "__main__":
 
     fig2 = make_time_hist(ds)
     fig2.write_html("output/time_hist.html")
+
+    fig3 = make_correlation_matrix(ds)
+    fig3.write_html("output/correlation_matrix.html")
+
+    fig4 = make_jpd(ds)
+    fig4.write_html("output/jpd.html")
+
+    fig5 = make_power_grid(ds)
+    fig5.write_html("output/power_grid.html")
