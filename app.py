@@ -215,6 +215,20 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
     ds = xr.concat(dsl, dim="time")
     ds = ds.sortby("time")
 
+    df = pd.read_csv(
+        "Deployment1_Schedule.csv",
+        header=None,
+        names=["time", "Mode", "Gain"],
+        index_col=False,
+        sep=",",
+    )
+    df = df.set_index("time")
+    dsg = df.to_xarray()
+    dsg["time"] = pd.to_datetime(dsg["time"]).values
+    dsg = dsg.interp_like(ds["DcP"], method="zero")
+
+    ds = xr.merge([ds, dsg["Gain"]])
+
     return ds
 
 
@@ -480,6 +494,26 @@ def make_cw_matrix(ds, tp_to_te=0.9):
     return fig
 
 
+def make_gain_scatter(ds):
+    fig = px.scatter(
+        ds[["Gain", "DcP"]],
+        x="Gain",
+        y="DcP",
+        labels={"Gain": "Damping gain [As/rad]", "DcP": "DC bus power [W]"},
+    )
+    fig.update_layout(
+        template="simple_white",
+        # hovermode="y unified",
+        # height=1000,
+        # margin=dict(l=60, r=40, t=100, b=50),
+        # showlegend=False,
+        # font=dict(size=10),
+    )
+    fig.update_traces(marker=dict(size=5, color="black", opacity=0.5))
+
+    return fig
+
+
 if __name__ == "__main__":
 
     _ensure_data_dir()
@@ -515,3 +549,6 @@ if __name__ == "__main__":
 
     fig6 = make_cw_matrix(ds)
     fig6.write_html("output/cw_matrix.html")
+
+    fig8 = make_gain_scatter(ds)
+    fig8.write_html("output/gain_scatter.html")
