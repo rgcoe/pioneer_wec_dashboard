@@ -444,6 +444,42 @@ def make_power_matrix(ds):
     return fig
 
 
+def make_cw_matrix(ds, tp_to_te=0.9):
+    ds0 = ds.mean("buoy")
+    ds0["Te"] = ds0["DPD"] * tp_to_te
+    ds0["J"] = ds0["Te"] * ds0["WVHT"] ** 2 * 1025 * 9.81**2 / (64 * np.pi)
+    ds0["cw"] = ds0["DcP"] / ds0["J"]
+    fig = px.density_heatmap(
+        ds0[["DPD", "WVHT", "cw"]],
+        x="DPD",
+        y="WVHT",
+        z="cw",
+        color_continuous_scale="Reds",
+        histfunc="avg",
+        labels={
+            "DPD": "Peak Wave Period (s)",
+            "WVHT": "Significant Wave Height (m)",
+            "cw": "Capture width [m]",
+        },
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=ds0["DPD"],
+            y=ds0["WVHT"],
+            mode="markers",
+            marker=dict(
+                color="black",  # Set point color to black
+                size=5,  # Set point size
+                opacity=0.25,  # Set point opacity
+            ),
+            hoverinfo="skip",
+        )
+    )
+
+    return fig
+
+
 if __name__ == "__main__":
 
     _ensure_data_dir()
@@ -476,3 +512,6 @@ if __name__ == "__main__":
 
     fig5 = make_power_matrix(ds)
     fig5.write_html("output/power_matrix.html")
+
+    fig6 = make_cw_matrix(ds)
+    fig6.write_html("output/cw_matrix.html")
