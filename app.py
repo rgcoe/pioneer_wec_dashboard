@@ -524,21 +524,40 @@ def make_cw_matrix(ds, tp_to_te=0.9):
 
 
 def make_gain_scatter(ds):
-    fig = px.scatter(
-        ds[["Gain", "DcP"]],
-        x="Gain",
-        y="DcP",
-        labels={"Gain": "Damping gain [As/rad]", "DcP": "DC bus power [W]"},
+    dstp = ds[["Gain", "DcP"]].groupby_bins("Gain", bins=20).mean().dropna("Gain_bins")
+
+    fig = make_subplots(rows=1, cols=1)
+    fig.add_trace(
+        go.Scatter(
+            x=dstp["Gain"],
+            y=dstp["DcP"],
+            mode="lines",
+            name="DC power",
+            line=dict(color="black"),
+            hovertemplate="%{y:.1f}W",
+        ),
     )
+    fig.add_trace(
+        go.Scatter(
+            x=ds["Gain"],
+            y=ds["DcP"],
+            mode="markers",
+            # name="Gain",
+            marker=dict(size=4, color="black", opacity=0.25),
+            hoverinfo="skip",
+        ),
+    )
+
     fig.update_layout(
         template="simple_white",
-        # hovermode="y unified",
-        # height=1000,
-        # margin=dict(l=60, r=40, t=100, b=50),
-        # showlegend=False,
-        # font=dict(size=10),
+        showlegend=False,
     )
-    fig.update_traces(marker=dict(size=5, color="black", opacity=0.5))
+
+    fig.update_layout(
+        xaxis_title="Damping gain [As/rad]",
+        yaxis_title="Power [W]",
+    )
+    fig.update_yaxes(range=[0, np.infty])
 
     return fig
 
