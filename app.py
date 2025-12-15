@@ -290,7 +290,7 @@ def make_scatter_3d(ds):
 def make_time_hist(dstp):
 
     # no subplot titles; show info in y-axis labels instead
-    fig = make_subplots(rows=5, cols=1, shared_xaxes=True, vertical_spacing=0.03)
+    fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.03)
 
     # vars_to_plot = [[{"WVHT":"#1f77b4"}], [{"WSPD":"#17becf"}], [{"DPD":"#1f77b4"}], [{"MWD":"#1f77b4"}, {"WDIR":"#17becf"}]]
     vars_to_plot = [
@@ -355,6 +355,20 @@ def make_time_hist(dstp):
         col=1,
     )
 
+    fig.add_trace(
+        go.Scatter(
+            x=dstp["Gain"].time,
+            y=dstp["Gain"],
+            name="Damping gain",
+            mode="lines",
+            line_shape="hv",
+            line=dict(color="black"),
+            hovertemplate="%{y:.3f} As/rad",
+        ),
+        row=6,
+        col=1,
+    )
+
     fig.update_layout(
         height=1400,
         hovermode="x unified",
@@ -362,14 +376,12 @@ def make_time_hist(dstp):
     )
 
     # move descriptive info into y-axis labels
-    fig.update_yaxes(title_text="Significant wave height (m)", row=1, col=1)
-    fig.update_yaxes(title_text="Wind speed (m/s)", row=2, col=1)
-    fig.update_yaxes(title_text="Dominant wave period (s)", row=3, col=1)
-    fig.update_yaxes(title_text="Wave & wind direction (deg)", row=4, col=1)
-    fig.update_yaxes(title_text="WEC DC bus power (W)", row=5, col=1)
-
-    # label x-axis on the bottom subplot
-    # fig.update_xaxes(title_text='Time', row=5, col=1)
+    fig.update_yaxes(title_text="Significant wave height [m]", row=1, col=1)
+    fig.update_yaxes(title_text="Wind speed [m/s]", row=2, col=1)
+    fig.update_yaxes(title_text="Dominant wave period [s]", row=3, col=1)
+    fig.update_yaxes(title_text="Wave & wind direction [deg]", row=4, col=1)
+    fig.update_yaxes(title_text="WEC DC bus power [W]", row=5, col=1)
+    fig.update_yaxes(title_text="Damping gain [As/rad]", row=6, col=1)
 
     fig.update_layout(
         # title="Pioneer WEC",
