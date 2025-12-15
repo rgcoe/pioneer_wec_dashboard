@@ -585,6 +585,7 @@ def make_calendar(ds):
         month_lines_width=5,
         month_lines_color="black",
         colorscale="reds",
+        name="DC power",
     )
 
     return fig
