@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 import plotly
+from plotly_calplot import calplot
 import requests
 import logging
 from parse_wec_decimated_log import parse_putty_log
@@ -562,6 +563,20 @@ def make_gain_scatter(ds):
     return fig
 
 
+def make_calendar(ds):
+    fig = calplot(
+        ds["DcP"].to_dataframe().reset_index(),
+        x="time",
+        y="DcP",
+        start_month=11,
+        month_lines_width=5,
+        month_lines_color="black",
+        colorscale="reds",
+    )
+
+    return fig
+
+
 if __name__ == "__main__":
 
     _ensure_data_dir()
@@ -605,3 +620,6 @@ if __name__ == "__main__":
 
     fig8 = make_gain_scatter(ds)
     fig8.write_html("output/gain_scatter.html")
+
+    fig9 = make_calendar(ds)
+    fig9.write_html("output/calendar.html")
