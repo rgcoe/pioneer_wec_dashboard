@@ -226,9 +226,9 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
     df = df.set_index("time")
     dsg = df.to_xarray()
     dsg["time"] = pd.to_datetime(dsg["time"]).values
-    dsg = dsg.interp_like(ds["DcP"], method="zero")
-
-    ds = xr.merge([ds, dsg["Gain"]])
+    dsg = dsg["Gain"].interp_like(ds["DcP"], method="zero")
+    dsg = dsg.fillna(0.130)  # Default value for damping gain
+    ds = xr.merge([ds, dsg])
 
     return ds
 
