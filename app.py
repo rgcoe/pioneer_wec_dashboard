@@ -406,6 +406,7 @@ def make_histograms(ds):
         labels={"value": "Power [W]", "type": "Type"},
         color_discrete_sequence=["black", "#ff0eb3"],
         orientation="h",
+        barmode="overlay",
     )
 
     fig.update_layout(
