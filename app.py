@@ -376,11 +376,11 @@ def make_time_hist(dstp):
     )
 
     # move descriptive info into y-axis labels
-    fig.update_yaxes(title_text="Significant wave height [m]", row=1, col=1)
+    fig.update_yaxes(title_text="Sig. wave height [m]", row=1, col=1)
     fig.update_yaxes(title_text="Wind speed [m/s]", row=2, col=1)
-    fig.update_yaxes(title_text="Dominant wave period [s]", row=3, col=1)
-    fig.update_yaxes(title_text="Wave & wind direction [deg]", row=4, col=1)
-    fig.update_yaxes(title_text="WEC DC bus power [W]", row=5, col=1)
+    fig.update_yaxes(title_text="Peak wave period [s]", row=3, col=1)
+    fig.update_yaxes(title_text="Wave & wind dir. [deg]", row=4, col=1)
+    fig.update_yaxes(title_text="DC bus power [W]", row=5, col=1)
     fig.update_yaxes(title_text="Damping gain [As/rad]", row=6, col=1)
 
     fig.update_layout(
@@ -403,14 +403,14 @@ def make_histograms(ds):
     fig = px.histogram(
         df,
         marginal="box",
-        labels={"value": "Power (W)", "type": "Type"},
+        labels={"value": "Power [W]", "type": "Type"},
         color_discrete_sequence=["black", "#ff0eb3"],
         orientation="h",
     )
 
     fig.update_layout(
-        xaxis_title="Count",
-        yaxis_title="Power (W)",
+        xaxis_title="Count[-]",
+        yaxis_title="Power [W]",
     )
     fig.update_yaxes(range=[0, np.infty])
 
@@ -433,14 +433,14 @@ def make_correlation_matrix(ds):
             ["WVHT", "WSPD", "DPD", "APD", "dir_diff", "DcP", "ExP", "Vel"]
         ].to_pandas(),
         labels={
-            "WVHT": "Wave Height<br>(m)",
-            "WSPD": "Wind Speed<br>(m/s)",
-            "DPD": "Peak Period<br>(s)",
-            "APD": "Average period<br>(s)",
-            "dir_diff": "Wave/wind direction<br>diff.(deg)",
-            "DcP": "DC power<br>(W)",
-            "ExP": "Export power<br>(W)",
-            "Vel": "RMS velocity<br>(deg/s)",
+            "WVHT": "Wave Height<br>[m]",
+            "WSPD": "Wind Speed<br>[m/s]",
+            "DPD": "Peak Period<br>[s]",
+            "APD": "Average period<br>[s]",
+            "dir_diff": "Wave/wind dir.<br>diff.[deg]",
+            "DcP": "DC power<br>[W]",
+            "ExP": "Export power<br>[W]",
+            "Vel": "RMS velocity<br>[deg/s]",
         },
         width=800,
         height=800,
@@ -459,7 +459,7 @@ def make_jpd(ds):
         x="DPD",
         y="WVHT",
         #  color_continuous_scale='Viridis',
-        labels={"DPD": "Peak Wave Period (s)", "WVHT": "Significant Wave Height (m)"},
+        labels={"DPD": "Peak wave period [s]", "WVHT": "Sig. wave height [m]"},
         marginal_x="histogram",
         marginal_y="histogram",
     )
@@ -477,9 +477,9 @@ def make_power_matrix(ds):
         color_continuous_scale="Reds",
         histfunc="avg",
         labels={
-            "DPD": "Peak Wave Period (s)",
-            "WVHT": "Significant Wave Height (m)",
-            "DcP": "DC power (w)",
+            "DPD": "Peak wave period [s]",
+            "WVHT": "Sig. wave height [m]",
+            "DcP": "DC power [W]",
         },
     )
 
@@ -513,8 +513,8 @@ def make_cw_matrix(ds, tp_to_te=0.9):
         color_continuous_scale="Reds",
         histfunc="avg",
         labels={
-            "DPD": "Peak Wave Period (s)",
-            "WVHT": "Significant Wave Height (m)",
+            "DPD": "Peak wave period [s]",
+            "WVHT": "Sig. wave height [m]",
             "cw": "Capture width [m]",
         },
     )
