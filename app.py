@@ -132,7 +132,7 @@ def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
         "WSPD": "Wind Speed",
         "GST": "Wind Gust",
         "WVHT": "Significant Wave Height",
-        "DPD": "Dominant Wave Period",
+        "DPD": "Peak Wave Period",
         "APD": "Average Wave Period",
         "MWD": "Mean Wave Direction",
         "PRES": "Atmospheric Pressure",
@@ -292,11 +292,10 @@ def make_time_hist(dstp):
     # no subplot titles; show info in y-axis labels instead
     fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.03)
 
-    # vars_to_plot = [[{"WVHT":"#1f77b4"}], [{"WSPD":"#17becf"}], [{"DPD":"#1f77b4"}], [{"MWD":"#1f77b4"}, {"WDIR":"#17becf"}]]
     vars_to_plot = [
         {"WVHT": "#1f77b4"},
         {"WSPD": "#17becf"},
-        {"DPD": "#1f77b4"},
+        {"DPD": "#1f77b4", "APD": "#605aff"},
         {"MWD": "#1f77b4", "WDIR": "#17becf"},
     ]
     for i, vars in enumerate(vars_to_plot):
