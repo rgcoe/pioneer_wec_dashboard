@@ -377,9 +377,9 @@ def make_time_hist(dstp):
     # move descriptive info into y-axis labels
     fig.update_yaxes(title_text="Sig. wave height [m]", row=1, col=1)
     fig.update_yaxes(title_text="Wind speed [m/s]", row=2, col=1)
-    fig.update_yaxes(title_text="Peak wave period [s]", row=3, col=1)
+    fig.update_yaxes(title_text="Wave period [s]", row=3, col=1)
     fig.update_yaxes(title_text="Wave & wind dir. [deg]", row=4, col=1)
-    fig.update_yaxes(title_text="DC bus power [W]", row=5, col=1)
+    fig.update_yaxes(title_text="WEC power [W]", row=5, col=1)
     fig.update_yaxes(title_text="Damping gain [As/rad]", row=6, col=1)
 
     fig.update_layout(
