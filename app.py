@@ -392,6 +392,22 @@ def make_time_hist(dstp):
         font=dict(size=10),
     )
 
+    fig.update_layout(
+        xaxis=dict(
+            rangeselector=dict(
+                buttons=list(
+                    [
+                        dict(count=1, label="1d", step="day", stepmode="backward"),
+                        dict(count=2, label="2d", step="day", stepmode="backward"),
+                        dict(count=7, label="1w", step="day", stepmode="backward"),
+                        dict(count=1, label="1m", step="month", stepmode="backward"),
+                        dict(step="all"),
+                    ]
+                )
+            )
+        )
+    )
+
     return fig
 
 
