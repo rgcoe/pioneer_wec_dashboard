@@ -593,7 +593,7 @@ def make_gain_scatter(ds):
 
 def make_calendar(ds):
     fig = calplot(
-        ds["DcP"].to_dataframe().reset_index(),
+        ds["DcP"].to_dataframe().resample("D").mean().reset_index(),
         x="time",
         y="DcP",
         start_month=11,
