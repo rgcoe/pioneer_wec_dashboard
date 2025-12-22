@@ -150,6 +150,11 @@ def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
             ds[var].attrs["long_name"] = long_names[var]
 
     ds = ds.sortby("time")
+
+    ds["dir_diff"] = np.abs(ds["MWD"] - ds["WDIR"]) % 180
+    ds["dir_diff"].attrs["units"] = "°"
+    ds["dir_diff"].attrs["long_name"] = "Direction Difference"
+
     return ds
 
 
@@ -236,12 +241,7 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
 def resample_and_combine(ds_wec, ds_ndbc, freq="1H"):
     ds1 = ds_wec.resample(time=freq).mean()
 
-    ds2 = ds_ndbc.dropna("time", how="all").resample(time=freq).mean()
-
-    dir_diff = np.abs(ds2["MWD"] - ds2["WDIR"]) % 180
-    dir_diff.name = "dir_diff"
-    dir_diff.attrs["units"] = "°"
-    dir_diff.attrs["long_name"] = "Direction Difference"
+    for dsi in dsl:
 
     ds0 = xr.merge([ds1, ds2, dir_diff])
     ds0 = ds0.sel(time=slice(ds1["time"][0], ds1["time"][-1]))
