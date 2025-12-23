@@ -765,7 +765,7 @@ def make_time_hist(dstp):
     return fig
 
 
-def make_histograms(ds):
+def make_wec_histograms(ds):
     df = ds[["DcP", "ExP"]].to_array(dim="type").to_pandas().transpose()
     df.rename(columns={"DcP": "DC", "ExP": "Export"}, inplace=True)
 
@@ -960,6 +960,36 @@ def make_calendar(ds):
     return fig
 
 
+def make_generators_box(ds):
+    pow = ds["current"] * ds["voltage"]
+    pow = pow.groupby("gtype").mean().sel(gtype=["solar", "wind"])
+    tmp1 = ds["DcP"].expand_dims(dim={"gtype": ["WEC"]})
+    pow.name = "Power"
+    pow = xr.concat([pow, tmp1], dim="gtype")
+    pow.attrs = {"units": "W", "long_name": "Power"}
+    df = pow.dropna(dim="time").to_pandas()
+
+    fig = px.box(
+        df,
+        #  log_y=True,
+        labels={"value": "Power [W]", "gtype": "Type"},
+        points="all",
+        notched=False,
+        color_discrete_sequence=px.colors.qualitative.Set1,
+        color="gtype",
+    )
+
+    fig.update_traces(boxmean=True)
+
+    fig.update_layout(
+        template="simple_white",
+    )
+    # fig.update_yaxes(range=[0, np.infty])
+    fig.update_xaxes(ticktext=["Solar", "Wind", "WEC"])
+
+    return fig
+
+
 if __name__ == "__main__":
 
     _ensure_data_dir()
@@ -1004,7 +1034,7 @@ if __name__ == "__main__":
     fig6 = make_cw_matrix(ds)
     fig6.write_html("output/cw_matrix.html")
 
-    fig7 = make_histograms(ds)
+    fig7 = make_wec_histograms(ds)
     fig7.write_html("output/histograms.html")
 
     fig8 = make_gain_scatter(ds)
@@ -1012,3 +1042,6 @@ if __name__ == "__main__":
 
     fig9 = make_calendar(ds)
     fig9.write_html("output/calendar.html")
+
+    fig10 = make_generators_box(ds)
+    fig10.write_html("output/generators_box.html")
