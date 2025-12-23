@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 
 # directory to cache raw WEC text files
-WEC_TEXT_CACHE = Path(".cache")
+WEC_TEXT_CACHE = Path(".cache/wec")
+PWRSYS_TEXT_CACHE = Path(".cache/pwrsys")
 DATA_DIR = Path("output/data")
 
 
@@ -31,6 +32,14 @@ def _ensure_wec_text_cache_dir() -> None:
 
 def _wec_text_cache_file(date_str: str) -> Path:
     return WEC_TEXT_CACHE / f"{date_str}.wec.dec.10.log"
+
+
+def _ensure_pwrsys_text_cache_dir() -> None:
+    PWRSYS_TEXT_CACHE.mkdir(parents=True, exist_ok=True)
+
+
+def _pwrsys_text_cache_file(date_str: str) -> Path:
+    return PWRSYS_TEXT_CACHE / f"{date_str}.pwrsys.log"
 
 
 def _ensure_data_dir() -> None:
@@ -238,13 +247,296 @@ def fetch_wec_data(start_date: datetime = None, max_retries: int = 3) -> xr.Data
     return ds
 
 
-def resample_and_combine(ds_wec, ds_ndbc, freq="1H"):
+def fetch_pwrsys_data(start_date: datetime = None) -> xr.Dataset:
+    """
+    Fetch power system data (solar PV panels and wind turbines) from OOI.
+    All device data is contained in a single daily log file.
+
+    Args:
+        start_date: Start date for data fetch. Defaults to 7 days ago.
+
+    Returns:
+        xr.Dataset: Power system data with variables (status, voltage, current) and dimensions (device, time)
+    """
+
+    logger.info(f"Fetching power system data")
+
+    end_time = pd.Timestamp.utcnow()
+    current_date = end_time.date()
+
+    if start_date is None:
+        start_date = current_date - timedelta(days=7)
+
+    dates_to_try = [
+        start_date + timedelta(days=i)
+        for i in range((current_date - start_date).days + 1)
+    ]
+
+    base_url = (
+        "https://rawdata.oceanobservatories.org/files/CP10CNSM/D00003/cg_data/pwrsys"
+    )
+
+    all_data = []
+    _ensure_pwrsys_text_cache_dir()
+
+    for attempt_date in dates_to_try:
+        date_str = attempt_date.strftime("%Y%m%d")
+        file_url = f"{base_url}/{date_str}.pwrsys.log"
+        cache_file = _pwrsys_text_cache_file(date_str)
+
+        text_to_parse = None
+
+        # prefer cached text file
+        if cache_file.exists():
+            try:
+                logger.info(
+                    f"Loading cached power system text for {date_str} from {cache_file}"
+                )
+                text_to_parse = cache_file.read_text()
+            except Exception as e:
+                logger.warning(
+                    f"Failed to read cached power system file {cache_file}: {e}"
+                )
+                text_to_parse = None
+        else:
+            # download and cache
+            try:
+                logger.info(f"Fetching power system data for {date_str}")
+                resp = requests.get(file_url, timeout=30)
+
+                if resp.status_code == 404:
+                    logger.debug(f"Power system file not found for {date_str}")
+                    text_to_parse = None
+                elif resp.status_code != 200:
+                    logger.warning(
+                        f"Failed to fetch power system data for {date_str}: HTTP {resp.status_code}"
+                    )
+                    text_to_parse = None
+                else:
+                    text_to_parse = resp.text
+                    try:
+                        cache_file.write_text(resp.text)
+                        logger.info(f"Cached power system text to {cache_file}")
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to write power system cache {cache_file}: {e}"
+                        )
+            except Exception as e:
+                logger.warning(f"Error fetching power system data for {date_str}: {e}")
+                text_to_parse = None
+
+        if text_to_parse is not None and len(text_to_parse) == 0:
+            logger.debug(f"Empty power system data for {date_str}")
+            text_to_parse = None
+
+        if text_to_parse is not None:
+            # Parse the data
+            df = _parse_pwrsys_log(text_to_parse)
+            if df is not None and len(df) > 0:
+                all_data.append(df)
+                logger.info(f"Successfully parsed power system data for {date_str}")
+
+    if not all_data:
+        logger.error("No power system data was successfully fetched")
+        return xr.Dataset()
+
+    # Combine all data
+    df_combined = pd.concat(all_data, ignore_index=False)
+    df_combined = df_combined.sort_index()
+
+    # Extract device names and variable types (include batteries)
+    devices = ["pv1", "pv2", "pv3", "pv4", "wt1", "wt2", "bt1", "bt2", "bt3", "bt4"]
+    var_map = {
+        "status": "status",
+        "voltage": "voltage",
+        "current": "current",
+        "temperature": "temp",
+    }
+
+    # Determine which devices have any data in the combined dataframe
+    device_coords = [
+        d
+        for d in devices
+        if any(col.startswith(f"{d}_") for col in df_combined.columns)
+    ]
+
+    # Build 2D arrays for each variable type: (device, time)
+    data_vars = {}
+    time_len = len(df_combined.index)
+
+    for var_name, col_suffix in var_map.items():
+        var_data = []
+        for device in device_coords:
+            col_name = f"{device}_{col_suffix}"
+            if col_name in df_combined.columns:
+                var_data.append(df_combined[col_name].values)
+            else:
+                # fill missing device variable with NaNs
+                var_data.append(np.full(time_len, np.nan))
+
+        if any(~np.isnan(np.array(var_data)).all(axis=1)) or True:
+            # Stack into 2D array (device, time)
+            data_vars[var_name] = (["device", "time"], np.array(var_data))
+
+    if not data_vars or not device_coords:
+        logger.error("No device data found in parsed power system log")
+        return xr.Dataset()
+
+    # Create xarray Dataset
+    ds = xr.Dataset(
+        data_vars, coords={"device": device_coords, "time": df_combined.index.values}
+    )
+
+    # Assign device types
+    gtype = {"pv": "solar", "wt": "wind", "bt": "battery"}
+    ds = ds.assign_coords(
+        gtype=(
+            "device",
+            [gtype.get(d[:2], "unknown") for d in device_coords],
+            {"long_name": "Generation type"},
+        ),
+    )
+
+    # Add units and long names
+    ds["time"].attrs["long_name"] = "Time"
+    ds["status"].attrs["units"] = "-"
+    ds["status"].attrs["long_name"] = "Device Status"
+    ds["voltage"].attrs["units"] = "V"
+    ds["voltage"].attrs["long_name"] = "Voltage"
+    ds["current"] = ds["current"] / 1e3
+    ds["current"].attrs["units"] = "A"
+    ds["current"].attrs["long_name"] = "Current"
+    ds["temperature"].attrs["units"] = "°C"
+    ds["temperature"].attrs["long_name"] = "Battery temperature"
+
+    ds1 = ds.where(ds["gtype"] == "battery").dropna(dim="device", how="all")
+    ds["ocv"] = ds1["voltage"] + 0.368 * ds1["current"]
+    ds["soc"] = (ds["ocv"] - 23.16) * 100 / 2.4
+    ds["soc"].attrs["units"] = "%"
+    ds["soc"].attrs["long_name"] = "State of charge"
+
+    ds = ds.sortby("time")
+
+    return ds
+
+
+def _parse_pwrsys_log(content: str) -> pd.DataFrame:
+    """
+    Parse power system log data from OOI containing all devices.
+    Log format: YYYY/MM/DD HH:MM:SS.mmm PwrSys ... pv1 status voltage current pv2 status voltage current ... wt1 status voltage current ...
+
+    For each device: status (integer), voltage (float), current (float)
+
+    Args:
+        content: Raw text content from the log file
+
+    Returns:
+        pd.DataFrame: Parsed data with time index and columns for each device
+    """
+
+    lines = content.strip().split("\n")
+
+    # Skip header lines (those starting with #)
+    data_lines = [line for line in lines if line.strip() and not line.startswith("#")]
+
+    if not data_lines:
+        logger.warning(f"No data lines found in power system log")
+        return None
+
+    try:
+        data = []
+        devices_of_interest = [
+            "pv1",
+            "pv2",
+            "pv3",
+            "pv4",
+            "wt1",
+            "wt2",
+            "bt1",
+            "bt2",
+            "bt3",
+            "bt4",
+        ]
+
+        for line in data_lines:
+            parts = line.split()
+
+            if len(parts) < 3:
+                continue
+
+            try:
+                # Parse timestamp: first two tokens are date and time
+                timestamp_str = f"{parts[0]} {parts[1]}"
+                timestamp = pd.to_datetime(timestamp_str)
+
+                # Find each device in the line and extract its values
+                row_data = {"time": timestamp}
+
+                for device in devices_of_interest:
+                    try:
+                        device_idx = parts.index(device)
+
+                        # Batteries report: temp, voltage, current (mA)
+                        if device.startswith("bt"):
+                            if device_idx + 3 < len(parts):
+                                temp = float(parts[device_idx + 1])
+                                voltage = float(parts[device_idx + 2])
+                                current = float(parts[device_idx + 3])
+
+                                row_data[f"{device}_temp"] = temp
+                                row_data[f"{device}_voltage"] = voltage
+                                row_data[f"{device}_current"] = current
+                        else:
+                            # pv and wt report: status, voltage, current
+                            if device_idx + 3 < len(parts):
+                                status = int(parts[device_idx + 1])
+                                voltage = float(parts[device_idx + 2])
+                                current = float(parts[device_idx + 3])
+
+                                row_data[f"{device}_status"] = status
+                                row_data[f"{device}_voltage"] = voltage
+                                row_data[f"{device}_current"] = current
+                    except (ValueError, IndexError):
+                        # Device not found or malformed in this line
+                        pass
+
+                # Only add row if we found at least some device data
+                if len(row_data) > 1:
+                    data.append(row_data)
+
+            except (ValueError, IndexError):
+                logger.debug(f"Could not parse line: {line}")
+                continue
+
+        if not data:
+            return None
+
+        # Create DataFrame from list of dictionaries
+        df = pd.DataFrame(data)
+        df.set_index("time", inplace=True)
+
+        # Convert all columns to numeric
+        for col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        return df
+
+    except Exception as e:
+        logger.error(f"Error parsing power system log: {e}")
+        return None
+
+
+def resample_and_combine(ds_wec, dsl, freq="1H"):
     ds1 = ds_wec.resample(time=freq).mean()
 
+    dstm = []
     for dsi in dsl:
+        dsi = dsi.dropna("time", how="all").resample(time=freq).mean()
+        dstm.append(dsi)
 
-    ds0 = xr.merge([ds1, ds2, dir_diff])
+    ds0 = xr.merge([ds1] + dstm)
     ds0 = ds0.sel(time=slice(ds1["time"][0], ds1["time"][-1]))
+
     return ds0
 
 
@@ -290,7 +582,7 @@ def make_scatter_3d(ds):
 def make_time_hist(dstp):
 
     # no subplot titles; show info in y-axis labels instead
-    fig = make_subplots(rows=6, cols=1, shared_xaxes=True, vertical_spacing=0.03)
+    fig = make_subplots(rows=8, cols=1, shared_xaxes=True, vertical_spacing=0.03)
 
     vars_to_plot = [
         {"WVHT": "#1f77b4"},
@@ -331,7 +623,7 @@ def make_time_hist(dstp):
     fig.add_trace(
         go.Scatter(
             x=dstp["ExP"].time,
-            y=dstp["ExP"],
+            y=dstp["ExP"].clip(0, np.infty),
             name="Export power",
             mode="lines",
             line=dict(color="#ff0eb3"),
@@ -368,19 +660,81 @@ def make_time_hist(dstp):
         col=1,
     )
 
+    pow = ds["current"] * ds["voltage"]
+    pow = pow.groupby("gtype").mean().sel(gtype=["solar", "wind"])
+
+    fig.add_trace(
+        go.Scatter(
+            x=pow.sel(gtype="wind").time,
+            y=pow.sel(gtype="wind"),
+            name="Wind",
+            mode="lines",
+            line=dict(color="#17becf"),
+            hovertemplate="%{y:.1f} W",
+        ),
+        row=7,
+        col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=pow.sel(gtype="solar").time,
+            y=pow.sel(gtype="solar"),
+            name="Solar",
+            mode="lines",
+            line=dict(color="#ffb70e"),
+            hovertemplate="%{y:.1f} W",
+        ),
+        row=7,
+        col=1,
+    )
+
+    # soc = ds["soc"].mean(dim="device").clip(0, 100)
+
+    # fig.add_trace(
+    #     go.Scatter(
+    #         x=soc.time,
+    #         y=soc,
+    #         name="State of charge",
+    #         mode="lines",
+    #         line=dict(color="black"),
+    #         hovertemplate="%{y:.1f} W",
+    #     ),
+    #     row=8,
+    #     col=1,
+    # )
+
+    ds1 = ds.where(ds["gtype"] == "battery").dropna(dim="device", how="all")
+    ds2 = ds1["voltage"].mean(dim="device")
+
+    fig.add_trace(
+        go.Scatter(
+            x=ds2.time,
+            y=ds2,
+            name="Battery voltage",
+            mode="lines",
+            line=dict(color="black"),
+            hovertemplate="%{y:.1f} W",
+        ),
+        row=8,
+        col=1,
+    )
+
     fig.update_layout(
         height=1400,
         hovermode="x unified",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
 
-    # move descriptive info into y-axis labels
-    fig.update_yaxes(title_text="Sig. wave height [m]", row=1, col=1)
-    fig.update_yaxes(title_text="Wind speed [m/s]", row=2, col=1)
-    fig.update_yaxes(title_text="Wave period [s]", row=3, col=1)
-    fig.update_yaxes(title_text="Wave & wind dir. [deg]", row=4, col=1)
-    fig.update_yaxes(title_text="WEC power [W]", row=5, col=1)
-    fig.update_yaxes(title_text="Damping gain [As/rad]", row=6, col=1)
+    fig.update_yaxes(title_text="Sig. wave<br>height [m]", row=1, col=1)
+    fig.update_yaxes(title_text="Wind<br>speed [m/s]", row=2, col=1)
+    fig.update_yaxes(title_text="Wave<br>period [s]", row=3, col=1)
+    fig.update_yaxes(title_text="Wave & wind<br>dir. [deg]", row=4, col=1)
+    fig.update_yaxes(title_text="WEC<br>power [W]", range=[0, np.infty], row=5, col=1)
+    fig.update_yaxes(title_text="Damping gain<br>[As/rad]", row=6, col=1)
+    fig.update_yaxes(title_text="Power<br>[W]", row=7, col=1)
+    # fig.update_yaxes(title_text="State of<br>charge [-]", row=8, col=1)
+    fig.update_yaxes(title_text="Battery<br>voltage [V]", row=8, col=1)
 
     fig.update_layout(
         # title="Pioneer WEC",
@@ -610,19 +964,25 @@ if __name__ == "__main__":
 
     _ensure_data_dir()
 
+    start_date = datetime(2025, 11, 3).date()
+
+    ds_pwrsys = fetch_pwrsys_data(start_date=start_date)
+    ds_pwrsys.to_netcdf(
+        os.path.join(DATA_DIR, "pwrsys_data.h5"), engine="h5netcdf", invalid_netcdf=True
+    )
+
     buoys = ["44014", "44079", "41083", "44095"]
     ds_ndbc = xr.concat([fetch_ndbc(buoy_id=buoy_id) for buoy_id in buoys], dim="buoy")
     ds_ndbc.to_netcdf(
         os.path.join(DATA_DIR, "ndbc_data.h5"), engine="h5netcdf", invalid_netcdf=True
     )
 
-    start_date = datetime(2025, 11, 3).date()
     ds_wec = fetch_wec_data(start_date=start_date)
     ds_wec.to_netcdf(
         os.path.join(DATA_DIR, "wec_data.h5"), engine="h5netcdf", invalid_netcdf=True
     )
 
-    ds = resample_and_combine(ds_wec, ds_ndbc)
+    ds = resample_and_combine(ds_wec, [ds_ndbc, ds_pwrsys])
 
     logger.info("Generating plots")
 
