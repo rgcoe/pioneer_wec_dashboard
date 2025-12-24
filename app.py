@@ -661,7 +661,7 @@ def make_time_hist(dstp):
     )
 
     pow = ds["current"] * ds["voltage"]
-    pow = pow.groupby("gtype").mean().sel(gtype=["solar", "wind"])
+    pow = pow.groupby("gtype").sum().sel(gtype=["solar", "wind"])
 
     fig.add_trace(
         go.Scatter(
@@ -962,7 +962,7 @@ def make_calendar(ds):
 
 def make_generators_box(ds):
     pow = ds["current"] * ds["voltage"]
-    pow = pow.groupby("gtype").mean().sel(gtype=["solar", "wind"])
+    pow = pow.groupby("gtype").sum().sel(gtype=["solar", "wind"])
     tmp1 = ds["DcP"].expand_dims(dim={"gtype": ["WEC"]})
     pow.name = "Power"
     pow = xr.concat([pow, tmp1], dim="gtype")
