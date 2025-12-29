@@ -46,17 +46,63 @@ def _ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
+def fetch_ndbc(
+    buoy_id: str = "44014", start_date: datetime = None, max_retries: int = 3
+) -> xr.Dataset:
+
+    now = datetime.now().date()
+    if start_date is None:
+        start_date = now - timedelta(days=7)
+    start_year = start_date.year
+    num_days = (now - start_date).days + 1
+    logger.info(
+        f"Fetching NDBC data data starting from {start_date.strftime('%Y-%m-%d')} ({num_days} days)"
+    )
+
+    urls = []
+    urls += [f"https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.txt"]
+
+    if num_days > 45:
+        for month in range(start_date.month, now.month):
+            month_str = (datetime(2000, month, 1)).strftime("%b")
+            urls.append(
+                f"https://www.ndbc.noaa.gov/data/stdmet/{month_str}/{buoy_id}.txt"
+            )
+        if start_year < now.year:
+            for year in range(start_year, now.year):
+                urls.append(
+                    f"https://www.ndbc.noaa.gov/data/historical/stdmet/{buoy_id}h{year}.txt.gz"
+                )
 
     logger.info(f"Fetching NDBC data for buoy {buoy_id}")
+    logger.info(f"Using URLs: {urls}")
 
-    url = f"https://www.ndbc.noaa.gov/data/realtime2/{buoy_id}.txt"
+    dsl = []
+    for url in urls:
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Fetching data from {url} (attempt {attempt + 1})")
+                ds1 = _parse_ndbc_stdmet(url)
+                dsl.append(ds1)
+                break
+            except Exception as e:
+                logger.warning(f"Failed to fetch/parse data from {url}: {e}")
+                if attempt == max_retries - 1:
+                    logger.error(f"Max retries reached for {url}, skipping.")
+                else:
+                    logger.info(f"Retrying...")
+    ds = xr.concat(dsl, dim="time").sortby("time").drop_duplicates("time")
+    ds = ds.expand_dims("buoy").assign_coords(buoy=[buoy_id])
+    return ds
+
+
+def _parse_ndbc_stdmet(url: str) -> xr.Dataset:
 
     df = pd.read_csv(
         url,
         sep=r"\s+",
         comment="#",
-        na_values="MM",
+        na_values=["MM", 99.0, 99.00, 999],
         engine="python",
         header=None,
     )
@@ -79,9 +125,11 @@ def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
         "WTMP",
         "DEWP",
         "VIS",
-        "PTDY",
         "TIDE",
     ]
+
+    if url.__contains__("realtime2"):
+        colnames.insert(16, "PTDY")  # add PTDY column for realtime2 files
 
     df.columns = colnames
 
@@ -135,7 +183,7 @@ def fetch_ndbc(buoy_id: str = "44014", max_retries: int = 3) -> xr.Dataset:
         coords={"time": df.index.values},
         attrs={},
     )
-    ds = ds.expand_dims("buoy").assign_coords(buoy=[buoy_id])
+
     long_names = {
         "WDIR": "Wind Direction",
         "WSPD": "Wind Speed",
@@ -1002,7 +1050,10 @@ if __name__ == "__main__":
     )
 
     buoys = ["44014", "44079", "41083", "44095"]
-    ds_ndbc = xr.concat([fetch_ndbc(buoy_id=buoy_id) for buoy_id in buoys], dim="buoy")
+    ds_ndbc = xr.concat(
+        [fetch_ndbc(buoy_id=buoy_id, start_date=start_date) for buoy_id in buoys],
+        dim="buoy",
+    )
     ds_ndbc.to_netcdf(
         os.path.join(DATA_DIR, "ndbc_data.h5"), engine="h5netcdf", invalid_netcdf=True
     )
