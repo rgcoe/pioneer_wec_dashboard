@@ -1008,6 +1008,82 @@ def make_calendar(ds):
     return fig
 
 
+def make_table(ds):
+    pow = ds["current"] * ds["voltage"]
+    pow = pow.groupby("gtype").sum().sel(gtype=["solar", "wind"])
+    tmp1 = ds["DcP"].expand_dims(dim={"gtype": ["WEC"]})
+    pow.name = "Power"
+    pow = xr.concat([pow, tmp1], dim="gtype")
+    pow.attrs = {"units": "W", "long_name": "Power"}
+    df = pow.dropna(dim="time").to_pandas()
+
+    def cv(x):
+        return x.std() / x.mean()
+
+    def percentile(n):
+        def percentile_(x):
+            return x.quantile(n)
+
+        def get_ordinal_suffix(n):
+            """
+            Appends the correct English ordinal suffix to a number.
+
+            Examples:
+            1 -> 1st
+            2 -> 2nd
+            3 -> 3rd
+            11 -> 11th
+            21 -> 21st
+            """
+            if 11 <= (n % 100) <= 13:
+                suffix = "th"
+            elif n % 10 == 1:
+                suffix = "st"
+            elif n % 10 == 2:
+                suffix = "nd"
+            elif n % 10 == 3:
+                suffix = "rd"
+            else:
+                suffix = "th"
+            return f"{n}{suffix}"
+
+        percentile_.__name__ = get_ordinal_suffix(int(n * 100)) + "-percentile"
+        return percentile_
+
+    dft = df.agg(
+        [
+            "median",
+            "mean",
+            "std",
+            cv,
+            "max",
+            percentile(0.1),
+            percentile(0.25),
+            percentile(0.75),
+            percentile(0.9),
+        ]
+    )
+
+    fig = go.Figure(
+        data=[
+            go.Table(
+                header=dict(
+                    values=[""] + list(dft.columns),
+                    fill_color="paleturquoise",
+                    align=["right", "center", "center", "center"],
+                ),
+                cells=dict(
+                    values=[dft.index, dft.solar, dft.wind, dft.WEC],
+                    format=[None, ".1f", ".1f", ".1f"],
+                    fill_color=["paleturquoise", "lavender", "lavender", "lavender"],
+                    align=["right", "center", "center", "center"],
+                ),
+            ),
+        ]
+    )
+    return fig
+
+
 def make_generators_box(ds):
     pow = ds["current"] * ds["voltage"]
     pow = pow.groupby("gtype").sum().sel(gtype=["solar", "wind"])
@@ -1096,3 +1172,6 @@ if __name__ == "__main__":
 
     fig10 = make_generators_box(ds)
     fig10.write_html("output/generators_box.html")
+
+    fig11 = make_table(ds)
+    fig11.write_html("output/generators_table.html")
