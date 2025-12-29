@@ -820,7 +820,7 @@ def make_wec_histograms(ds):
     fig = px.histogram(
         df,
         marginal="box",
-        labels={"value": "Power [W]", "type": "Type"},
+        labels={"value": "Avg. hourly power [W]", "type": "Type"},
         color_discrete_sequence=["black", "#ff0eb3"],
         orientation="h",
         barmode="overlay",
@@ -828,7 +828,7 @@ def make_wec_histograms(ds):
 
     fig.update_layout(
         xaxis_title="Count[-]",
-        yaxis_title="Power [W]",
+        yaxis_title="Avg. hourly power [W]",
     )
     fig.update_yaxes(range=[0, np.infty])
 
@@ -1020,7 +1020,7 @@ def make_generators_box(ds):
     fig = px.box(
         df,
         #  log_y=True,
-        labels={"value": "Power [W]", "gtype": "Type"},
+        labels={"value": "Avg. hourly power [W]", "gtype": "Type"},
         points="all",
         notched=False,
         color_discrete_sequence=px.colors.qualitative.Set1,
