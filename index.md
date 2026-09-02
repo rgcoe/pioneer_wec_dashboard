@@ -93,5 +93,5 @@ Real-time data from the Central Surface Mooring:
 
 <section id="references" class="references-section">
 <h2>References</h2>
-{% bibliography --cited %}
+{% bibliography --cited_in_order %}
 </section>
